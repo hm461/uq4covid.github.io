@@ -1,0 +1,6 @@
+name: "UQ4Covid"
+description: ""
+author: "Stefan Siegert"
+port: 4000
+markdown: kramdown
+

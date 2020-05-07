@@ -1,5 +1,2 @@
-# Uncertainty Quantification for Covid-19 modelling (UQ4covid)
+https://uq4covid.github.io
 
-This is the website repository
-
-*This site is work in progress*
