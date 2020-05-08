@@ -10,8 +10,12 @@ layout: default
 - Main website of MetaWards: [metawards.org](https://metawards.org/index.html)
 - Installation instructions: [metawards.org/install.html](https://metawards.org/install.html)
 
-The MetaWards model can be easily installed via `pip`. To install for a user
-without root access, do
+Below is a quick guide to install and run MetaWards. Note however that the
+model is being actively developed, and for the latest information and
+documentation, the official website should be consulted. 
+
+The MetaWards model can be installed with `pip`. To install for a user without
+root access, do
 
 
 ```bash
@@ -19,7 +23,6 @@ pip install --user metawards
 ```
 
 The `metawards` executable is now available from the command line. 
-
 At the time of writing this, the most recent version of MetaWards is
 
 ```bash
@@ -42,32 +45,25 @@ Visit https://metawards.github.io for more information
 
 ```
 
-To be able to run MetaWards simulations, we have to download the input data
-from the [MetaWards data repository](https://github.com/metawards/MetaWardsData):
+To be able to run MetaWards simulations, we have to provide input data from the
+[MetaWards data repository](https://github.com/metawards/MetaWardsData), and
+model parameters through a configuration file:
 
 ```bash
 git clone https://github.com/metawards/MetaWardsData
+echo "0.9, 0.9, 0.2, 0.9, 0.9" > inputs.csv
 ```
 
-We also have to set the model parameters governing the transmission rates. For
-the following example we use a single setting of the 5 standard parameters
-saved in the file `beta_table.csv`. 
-
-```bash
-echo "0.9, 0.9, 0.2, 0.9, 0.9" > beta_table.csv
-```
-
-The different ways of setting model parameters are documented at
+The model parameters and different ways of specifying them are documented at
 [metawards.org/tutorial/tutorial.html](https://metawards.org/tutorial/tutorial.html).
 
-To finally run `metawards` we have to point it to the data directory, and the
-model parameter file as follows:
+To run `metawards` with this input data and parameters, use
 
 ```bash
-METAWARDSDATA=~/folders/MetaWardsData metawards --input beta_table.csv
+METAWARDSDATA=/path/to/MetaWardsData metawards --input inputs.csv
 ```
 
-By default the model output is written to a new subdirectory `output`.
+By default the output is written to a new subdirectory `output`.
 
 
 
