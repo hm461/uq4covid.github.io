@@ -3,4 +3,8 @@ description: ""
 author: "Stefan Siegert"
 port: 4000
 markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+  extensions: fenced_code_blocks
 
