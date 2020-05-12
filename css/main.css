@@ -10,8 +10,6 @@ nav ul, footer ul {
     list-style: none;
     font-weight: bold;
 }
-ul li {
-  font-size: 1.0em;
   line-height: 1.5em;
 }
 ul li p {
@@ -47,6 +45,4 @@ p {
     font-size: 1em;
     line-height: 1.5em;
 }
-
-@import "syntax.css";
 
