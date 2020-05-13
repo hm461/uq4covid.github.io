@@ -13,6 +13,11 @@ output of high-resolution computer models into policy-relevant decisions, with
 emphasis on the inherent uncertainties due to computer simulations and
 incomplete medical data.
 
+## Glossary
+
+New to uncertainty quantification? Have a look at the [UQ
+glossary](uq-glossary).
+
 
 ## Tools
 
