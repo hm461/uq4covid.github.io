@@ -35,7 +35,7 @@ the next section.
 
 The 2011 census ward boundaries shapefile were be downloaded from 
 [statistics.digitalresources.jisc.ac.uk](https://www.statistics.digitalresources.jisc.ac.uk/dataset/2011-census-geography-boundaries-wards-and-electoral-divisions).
-I used the `mapshaper` command line tool (see <https://github.com/mbloch/mapshaper>) to reduce the number of points and thus bring the filesize down from 350Mb to about 12Mb. The mapshaper shell commands used were 
+I used the `mapshaper` command line tool (see <https://github.com/mbloch/mapshaper>) to reduce the number of points and thus bring the filesize down from 350Mb to about 3Mb. The mapshaper shell commands used were 
 
 ```shell
 mapshaper infuse_ward_lyr_2011.shp -simplify visvalingam 0.005 \
@@ -116,27 +116,29 @@ later match them with the ward ID from the MetaWards lookup table.
 max_infect_ward =
   max_infect %>%
   filter(ward != 'ward.0.') %>%
-  mutate(ward_no = as.numeric(str_extract(ward, '\\d+'))) %>%
-  arrange(ward_no)
+  mutate(FID = as.numeric(str_extract(ward, '\\d+')))
 ```
 
 
 ## Import ward lookup table
 
-The ward lookup table [Ward_Lookup.csv]({{ site.baseurl
+The MetaWards ward lookup table [Ward_Lookup.csv]({{ site.baseurl
 }}/vignettes/Ward_Lookup.csv) was downloaded from
 [here](https://github.com/metawards/MetaWardsData/blob/master/model_data/2011Data/Ward_Lookup.csv).
-The first column holds the ward id (WD11CD) which we extract and attach to the
-maximum infections data frame. The WD11CD is also a column in the wards
-boundaries dataso it will be used to combine the data frames later. 
+The first column holds the ward id (WD11CD) which we extract and join it with
+maximum infections data frame on column name `FID`. The WD11CD is also a column
+in the wards boundaries data so it will be used to combine the data frames
+later. 
 
 
 
 ```r
-metawards_lookup = read.csv('Ward_Lookup.csv')
-metawards_wd11cd = metawards_lookup[,1]
-max_infect_ward = max_infect_ward %>% mutate(WD11CD = metawards_wd11cd)
+metawards_lookup = read.csv('Ward_Lookup.csv') %>%
+	as_tibble %>%
+	select(WD11CD, FID)
+max_infect_ward = left_join(max_infect_ward, metawards_lookup, by='FID')
 ```
+
 
 ### NOTE: not all MetaWards wards are in the boundaries data set
 
@@ -144,8 +146,7 @@ max_infect_ward = max_infect_ward %>% mutate(WD11CD = metawards_wd11cd)
 
 
 ```r
-wards_wd11cd = wards_sf$WD11CD
-setdiff(metawards_wd11cd, wards_wd11cd)
+setdiff(metawards_lookup$WD11CD, wards_sf$WD11CD)
 ```
 
 ```
