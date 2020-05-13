@@ -61,7 +61,7 @@ save(file='wards_sf.Rdata', list='wards_sf')
 
 ## Load wards data
 
-Download link: [wards_sf.Rdata]({{ base.url }}/vignettes/wards_sf.Rdata')
+Download link: [wards_sf.Rdata]({{ base.url }}/vignettes/wards_sf.Rdata)
 
 
 ```r
