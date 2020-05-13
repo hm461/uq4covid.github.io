@@ -4,12 +4,11 @@ layout: default
 
 # Uncertainty quantification (UQ) glossary
 
-Instead of trying to write our own introduction and summary of important
-technical terms in UQ, we have put together the following glossary using quotes
+The following glossary explains some of the central UQ concepts using quotes
 from the seminal paper
 
-[Kennedy and Ohagan 2001 "Bayesian calibration of computer
-models"](https://rss.onlinelibrary.wiley.com/doi/abs/10.1111/1467-9868.00294)
+[**Kennedy and Ohagan 2001 "Bayesian calibration of computer
+models"**](https://rss.onlinelibrary.wiley.com/doi/abs/10.1111/1467-9868.00294)
 
 
 ## Calibration
