@@ -23,5 +23,6 @@ glossary](uq-glossary).
 
 - [MetaWards](https://metawards.org/): National-scale stochastic metapopulation model of disease transmission in Great Britain
 - [mogp](https://mogp-emulator.readthedocs.io): The Multi-Output Gaussian Process Emulator
+- [ExeterUQ_MOGP](https://bayesexeter.github.io/ExeterUQ_MOGP/): An R interface to mogp.
 
 
