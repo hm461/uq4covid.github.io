@@ -1,9 +1,12 @@
 ---
+title: UQ4Covid vignettes
+author: Stefan Siegert
 layout: default
 ---
 
+# UQ4Covid vignettes
 
-# All vignettes
+Please read the [**guide to contributing vignettes**]({{ site.baseurl }}/vignettes/guide-to-posting-vignettes).
 
 ## Installation
 

@@ -1,0 +1,26 @@
+---
+author: Name
+title: R markdown vignette
+layout: default
+---
+
+```{r, include=FALSE}
+my_fig_path = file.path('figure', knitr::current_input(), .Platform$file.sep)
+my_cache_path = file.path('_knitr_cache', knitr::current_input(), .Platform$file.sep)
+
+knitr::opts_chunk$set(
+  fig.path = my_fig_path,
+  cache.path = my_cache_path,
+  dpi=300,
+  fig.cap='')
+```
+
+```{r, include=FALSE}
+# include all loaded libraries in both of the following chunks
+# library(tidyverse)
+```
+```{r, eval=FALSE}
+# library(tidyverse)
+```
+
+
