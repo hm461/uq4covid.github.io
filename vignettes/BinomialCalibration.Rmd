@@ -1,0 +1,926 @@
+---
+title: "Some out-loud thoughts on calibrating MetaWards for COVID-19"
+author: "Ben Youngman"
+date: "25/05/2020"
+output: 
+  html_document:
+    number_sections: true
+    keep_md: true
+urlcolor: blue
+---
+
+<style type="text/css">
+
+body{ /* Normal  */
+  font-size: 14px;
+}
+h1.title {
+  font-size: 30px;
+}
+h1 { /* Header 1 */
+  font-size: 24px;
+}
+h2 { /* Header 2 */
+  font-size: 20px;
+}
+code.r{ /* Code block */
+  font-size: 12px;
+}
+pre { /* Code block - determines code spacing between lines */
+  font-size: 12px;
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+my_fig_path = file.path('figure', knitr::current_input(), .Platform$file.sep)
+knitr::opts_chunk$set(fig.path = my_fig_path)
+library(MASS)
+library(rgdal)
+setwd("/home/ben/Dropbox/Exeter/Research/covid/")
+```
+
+```{r, eval = FALSE}
+library(MASS)
+library(rgdal)
+```
+
+# Introduction
+
+The aim of this document is to think about how to calibrate COVID-19 simulations from the MetaWards model. Blah blah blah.
+
+# Various COVID-19 data
+
+The data are available from. Those can be imported from the url are; those that can't are in the data directory.
+
+```{r data_url}
+data_url <- "http://empslocal.ex.ac.uk/people/staff/by223/covid/"
+```
+
+## MetaWards simulations of COVID-19
+
+Let's start by importing some of MetaWards' output.
+
+```{r sims}
+# read in day 100 simulations
+sim <- read.csv(paste(data_url, "lads_by_day_cumulative_100.csv", sep = ""))
+n_input <- 5
+# the MetaWards inputs are in the first 5 columns, so we'll separate them
+sim_inputs <- sim[, seq_len(n_input)]
+# and then drop them
+sim <- sim[, -seq_len(n_input)]
+# leaving the counts per Unitary Authority day 100
+head(sim[,1:8])
+```
+
+## Some useful Census 2011 data
+
+I don't like using the Unitary Authority (UA) names, so I'm going to change them for their codes; otherwise it's a bit tricky matching them to the observations. This is also an opportunity to get the UA population sizes.
+
+We'll go to the 2011 Census data, available from [here](https://www.ons.gov.uk/peoplepopulationandcommunity/populationandmigration/populationestimates/datasets/2011censuspopulationandhouseholdestimatesfortheunitedkingdom) and use `Table 2 2011 Census: Usual resident population and population density, local authorities in the United Kingdom (Excel sheet 212Kb)', available from [here](https://www.ons.gov.uk/file?uri=/peoplepopulationandcommunity/populationandmigration/populationestimates/datasets/2011censuspopulationandhouseholdestimatesfortheunitedkingdom/r01ukrttable2v2_tcm77-292364.xls).
+
+Oh dear: it's a hideous Excel file. I quickly loaded this into (insert favourite Excel file reader), and changed it to a slightly less hideous csv file called `census2011_populations.csv', which we'll read in and tidy up a bit now.
+
+```{r census}
+census <- read.csv(paste(data_url, "census2011_population.csv", sep = ""), skip = 14)
+# then drop anything that isn't a UA
+is_UA <- substr(census[, 1], 1, 2) %in% c("E0", "W0")
+census <- subset(census, is_UA)
+head(census)
+```
+
+These are still rather ugly data, so we'll tidy them a bit more.
+
+```{r census_tidy}
+# start by stripping ` UA' from any names containing that
+for (i in 2:3) {
+  untidy <- grep("UA", census[, i])
+  census[untidy, i] <- sapply(strsplit(census[untidy, i], " UA"), "[[", 1)
+}
+# then collect names, irrespective of UA type
+census$name <- apply(census[, 2:4], 1, function(x) x[x != ""])
+# and then identify UA types, tidy population numbers, and get IDs
+census$type <- ifelse(census[, 4] == "", "UTLA", "LTLA")
+census$population <- as.integer(gsub(",", "", census[, 6], fixed = TRUE))
+census$id <- census[,1]
+# finally we'll drop the rubbish, and order alphabetically, as in MetaWards output
+census <- census[, c("id", "name", "type", "population")]
+census <- census[order(census$name), ]
+head(census)
+```
+
+Next we want to make sure that our census data and simulator output match, so that they have the same number of UAs
+
+```{r check1}
+ncol(sim) # number of simulator UAs
+nrow(census) # number of census UAs
+```
+
+and are in the right order
+
+```{r check2}
+# (just a check on first six...
+cbind(head(names(sim)), head(census$name))
+# ... and last six)
+cbind(tail(names(sim)), tail(census$name))
+```
+
+At this late stage, we'll drop Wales from the simulator output and the census data, because the calibration data (at the moment) just cover England. It's straightforward to reinstate Wales, though.
+
+```{r bye_Wales}
+in_Wales <- substr(census$id, 1, 1) == "W"
+census <- subset(census, !in_Wales)
+sim <- sim[, !in_Wales]
+```
+
+## Public Health England observations
+
+Next we'll load the latest Public Health England (PHE) data on COVID-19 cases, available from [https://coronavirus.data.gov.uk/](https://coronavirus.data.gov.uk/), a website with some surprisingly good graphics.
+
+```{r obs}
+obs <- read.csv("https://coronavirus.data.gov.uk/downloads/csv/coronavirus-cases_latest.csv")
+```
+
+Let's tidy these up a bit.
+
+```{r obs_tidy}
+# first we need to make sure the `Area.code' in is census$id
+obs <- subset(obs, Area.code %in% census$id)
+# then we'll put the daily cases into a matrix
+# by first creating factors of the dates of UA codes
+obs_dts <- as.factor(obs$Specimen.date)
+obs_id <- as.factor(obs$Area.code)
+obs_dts0 <- levels(obs_dts)
+obs_locs0 <- levels(obs_id)
+# and then put them in the right place
+# with locations along rows and dates along columns
+obs_daily <- matrix(0, length(obs_locs0), length(obs_dts0))
+places <- cbind(as.integer(obs_id), as.integer(obs_dts))
+obs_daily[places] <- obs$Daily.lab.confirmed.cases
+# and finally swap non-finites for zeros
+obs_daily[!is.finite(obs_daily)] <- 0
+```
+
+Finally we'll check the dimensions match
+
+```{r check3}
+nrow(census)
+nrow(obs_daily)
+```
+
+which they don't, so we'll drop the rows from `census` and `sim` that aren't in `obs_locs0` (although more detailed investigation into what's missing might be warranted somewhere down the line).
+
+```{r check4}
+in_obs <- census$id %in% obs_locs0
+census <- subset(census, in_obs)
+sim <- sim[, in_obs]
+nrow(census)
+```
+
+Next we'll re-order the observations to match `census` and `sim`, and check they match.
+
+```{r check5}
+obs_daily <- obs_daily[match(census$id, obs_locs0), ]
+all.equal(obs_locs0[match(census$id, obs_locs0)], census$id)
+```
+
+The observations give raw numbers of cases, and cases per 100,000 people. Inferring the UA populations from these, we see that they don't match those of the census, presumably due to an expanding population. We might as well make sure we're using the right population sizes for the 2020 observations.
+
+```{r pop_2020}
+obs_cols <- paste("Cumulative.lab.confirmed.cases", c("", ".rate"), sep = "")
+obs_last <- lapply(census$id, function(i) subset(obs, Area.code == i)[, obs_cols])
+obs_pop <- sapply(obs_last, function(x) apply(x, 2, max, na.rm = TRUE))
+census$population_2020 <- 1e5 * obs_pop[1, ] / obs_pop[2, ]
+```
+
+Finally, we don't want daily cases: we want cumulative ones.
+
+```{r obs_cum}
+obs_cumul <- t(apply(obs_daily, 1, cumsum))
+```
+
+That's it for now in terms of preparing the data.
+
+# Calibration
+
+## Outline
+
+Of the various ways to calibrate the MetaWards model, [Oakley \& Youngman (Technometrics, 2017)](https://doi.org/10.1080/00401706.2015.1125391) seems a viable option, which works as follows. Out of laziness, I'll just refer to the MetaWards model as the `simulator' from now on.
+
+Consider a single UA. Let $Z$ denote its observed number of cases and $n$ its population size, i.e. the number of potential cases (on a given day). (This assumes someone can only contract once, which we'll return to.) Then, of course, \[ Z \sim Binomial(n, \theta^*)\] where $\theta^*$ is the probability of an individual contracting COVID-19. 
+
+Next, we'll assume that the simulator takes input $x$, and gives number of cases $Y(x)$, where \begin{equation} Y(x) \sim Binomial(m, \theta(x)), \label{y} \end{equation} with $\theta(x)$ the simulator's probability that an individual contracts COVID-19. (I suppose $m = n$, or at least they would be equal if they represented the same time point, but we'll return to this.)
+
+Forgetting discrepancy, for the time being, in rather simple form we want to assume that $\theta^* = \theta(x^*)$ for some calibrated input $x^*$. From \eqref{y}, $\pi(\theta(x) \mid y(x), m)$ is of $Beta(1 + y(x), 1 + m - y(x))$ form, and hence \begin{align*} \pi(z \mid y(x), m, n) &= \int \pi(z \mid \theta(x), n) \pi(\theta(x) \mid y(x), m) d\theta(x) \\ &= \dfrac{{}^nC_z B(1 + y(x) + z, 1 + m - y(x) + n - z)}{B(1 + y(x), 1 + m - y(x))}, \end{align*} where $B(\, , \,)$ is the Beta function.
+
+## Discrepancy, through $\lambda$
+
+Oakley \& Youngman's approach to allowing for simulator discrepancy was to assume that instead of simulations being representative of a sample of size $m$, they are representative of a sample of size $\lambda m$, $0 < \lambda < 1$. This is perhaps quite an intuitive way of sensibly specifying discrepancy. For example, the average UA population is $m \simeq 165,000$. Suppose the simulator has the perfect input. Would it get $Y(x)$ perfectly? Of course not. What if $m = 165$, i.e. $\lambda = 0.001$? I think we need to be thinking of very small $\lambda \ll 0.001$. The upshot of this is that for calibration we'll consider \begin{equation} \label{calib} \pi(z \mid y(x), m, n, \lambda) = \dfrac{{}^nC_z B(1 + \lambda y(x) + z, 1 + \lambda[m - y(x)] + n - z)}{B(1 + \lambda y(x), 1 + \lambda[m - y(x)])}. \end{equation} This is all described rather more formally in Oakley \& Youngman (2017).
+
+## Multiple UAs
+
+Let's extend the notation to allow for multiple UAs. For the observations, let $Z_j$ denote the number of cases in UA $j$ of size $n_j$ for $j=1, \ldots, J$ with ${\bf Z} = (Z_1, \ldots, Z_J)$ and ${\bf n} = (n_1, \ldots, n_J)$. (Given the above we have $J=305$.) Let $Y_j(x)$ and $m_j$ be corresponding quantities for the simulator, and let ${\bf Y}(x) = (Y_1(x), \ldots, Y_J(x))$ and ${\bf m} = (m_1, \ldots, m_J)$. Then suppose \[\pi({\bf z} \mid {\bf y}(x), {\bf m}, {\bf n}, \lambda) = \prod_{j=1}^J \pi(z_j \mid y_j(x), m_j, n_j, \lambda).\] Above we're assuming independence. Should we assume independence from UA to UA? I doubt it. A couple of suggestions are given later for partial remedies.
+
+# Calibration in action
+
+## Calculating some calibration quantities
+
+We can now proceed to calculate $\log \pi({\bf z} \mid {\bf y}(x), {\bf m}, {\bf n}, \lambda) = \sum_{j=1}^J \log \pi(z_j \mid y_j(x), m_j, n_j, \lambda)$. Let's make life simpler by writing $\ell(z \mid x) = \log \pi({\bf z} \mid {\bf y}(x), {\bf m}, {\bf n}, \lambda)$.
+
+Firstly, we'll just work with day 100, which we need to match to `obs_dts0`.
+
+```{r pick_day}
+# pick right day
+day <- 100
+day_dt <- obs_dts0[format(as.Date(obs_dts0), "%j") == day]
+```
+
+So we want `r day_dt`. Then we can put together the calibration data; we'll name the objects to nicely match the formulae above.
+
+```{r calib_data}
+z <- obs_cumul[, obs_dts0 == day_dt]
+n <- census$population_2020
+y <- t(sim)
+m <- census$population
+```
+
+Alas, some simulated counts exceed their population size, so we'll cap them. Could this be people becoming infected multiple times? The cause of this should be investigated.
+
+```{r cap}
+y <- pmin(y, m)
+```
+
+Next we'll set $\lambda$ (rather arbitrarily)
+
+```{r lambda}
+lambda <- 1e-7
+```
+
+and then we can calculate $\ell(z \mid x_i)$ for each input $x_i \in D$ for $i = 1, \ldots, I$ where $x_i = (x_{i1}, \ldots, x_{iK})$ and $D = \{x_1, \ldots, x_I\}$ is our input design. Here $I = 200$ and $K = 5$.
+
+```{r pi_z}
+lPi <- lchoose(n, z) +
+  lbeta(1 + lambda * y + z, 1 + lambda * (m - y) + n - z) -
+  lbeta(1 + lambda * y, 1 + lambda * (m - y))
+lP <- colSums(lPi)
+```
+
+Then let's plot of histogram of $\ell(z \mid x_i)$.
+
+```{r pi_z_hist, fig.height = 6, fig.width = 7, out.extra = 'width = 10cm', fig.align = 'center'}
+hist(lP, main = "Histogram of l(z | x_i)", xlab = "l(z | x_i)")
+```
+
+## An aside: is the `best' simulator run any good?
+
+Let's plot the observations alongside the best simulator run. The best simulator run is clearly that with input $\{x_i : \ell(z \mid x_i) = \ell_0 = \max_{x_i \in D} \ell(z \mid x_i)\}$. So let's set $\ell_0$.
+
+```{r l0}
+l_0 <- max(lP)
+```
+
+Now we'll plot the observations and cases for the best simulator run. Let's set up the data for this. We're going to need some polygons representing the UAs. We can get these from [this ONS link](https://geoportal.statistics.gov.uk/datasets/local-authority-districts-december-2017-ultra-generalised-clipped-boundaries-in-united-kingdom-wgs84), from which we'll choose the `Shapefile' download. The following reads in the shapefile, and gets rid of any UAs not in our data.
+
+```{r poly, message = FALSE}
+UAs <- readOGR("Local_Authority_Districts__December_2017__Boundaries_in_the_UK__WGS84_.shp")
+UAs <- UAs[match(census$id, UAs$lad17cd),]
+```
+
+Next we want to color the polygons
+
+```{r poly_cols}
+obs_prop <- z / n
+sim_prop <- y[, which.max(lP)] / m
+prop_seq <- pretty(c(obs_prop, sim_prop), 10)
+prop_pal <- grey(rev(seq(0, 1, l = length(prop_seq) - 1)))
+obs_cols <- prop_pal[as.integer(cut(obs_prop, prop_seq))]
+sim_cols <- prop_pal[as.integer(cut(sim_prop, prop_seq))]
+```
+
+and then plot them together
+
+```{r poly_plot, fig.width = 9, fig.height = 5}
+layout(matrix(1:3, 1), widths = c(1, 1, .05))
+par(mar = c(.5, .5, 3, 2), oma = c(0, 0, 0, 3))
+plot(UAs, col = obs_cols, lwd = .5)
+title("Observed")
+plot(UAs, col = sim_cols, lwd = .3)
+title("Best simulated")
+par(plt = replace(par("plt"), 3:4, c(.2, .8)))
+image(1, prop_seq, t(prop_seq[-1] - .5 * diff(prop_seq)), 
+      col = prop_pal, breaks = prop_seq, axes = FALSE, xlab = "")
+axis(side = 4, las = 2)
+box()
+```
+
+which shows very little agreement in pattern. I suppose at this early stage the aim is for overall proportions to be in the `right' ball park, which could be a rather large ball park. (Simple exploration shows the best simulator counts might be about a factor of ten too high, on average.)
+
+## Identifying potentially bad input regions
+
+What's a bad input region? Let's be conservative about this and assume that an input is bad if $\ell(z \mid x_i) - \ell_0 < \log(0.001)$, for $\ell_0$ defined above. Let $\mathcal{D} = [-1, 1]^5$ denote the input domain; it is worth noting that $\ell_0 \leq \max_{x \in \mathcal{D}} \ell(z \mid x_i)$, i.e. that extra conservatism arises from not knowing the true maximum.
+
+We'll consider inputs in bins, of length 6 for each, which is easily changed.
+
+```{r bins}
+# number of bins for each input
+n_bin <- rep(6, n_input)
+# bin edges
+brks <- lapply(n_bin, function(x) seq(-1, 1, length = x))
+# bin mid-points (perhaps not used)
+mids <- lapply(brks, function(x) x[-1] - .5* diff(x))
+```
+
+Then we'll set up a (very inefficient, yet usefully verbose) function to calculate maxima over bins for a given input
+
+```{r max_vec_fun}
+lazy_max_vec <- function(x, z, x0, top) {
+out <- rep(NA)
+for (i in seq_along(x0[-1])) {
+  idx <- x >= x0[i] & x < x0[i + 1]
+  if (any(idx))
+    out[i] <- max(z[idx])
+}
+exp(out - top)
+}
+```
+  
+and similarly for pairwise combinations of inputs
+
+```{r max_mat_fun}
+lazy_max_mat <- function(x, y, z, x0, y0, top) {
+out <- matrix(NA, length(x0) - 1, length(y0) - 1)
+for (i in seq_along(x0[-1])) {
+  idx <- x >= x0[i] & x < x0[i + 1]
+  for (j in seq_along(y0[-1])) {
+    idy <- y >= y0[j] & y < y0[j + 1]
+    idxy <- idx & idy
+    if (any(idxy))
+      out[i, j] <- max(z[idxy])
+  }
+}
+exp(out - top)
+}
+```
+
+and calculate $\max_{x_{ik} \in [*,*]} \ell(z \mid x)$ for each input (i.e. the maximum log posterior predictive probability for $x_{ik}$ in a given bin)
+
+```{r max_vec}
+vecs <- list()
+for (i in seq_len(n_input)) {
+  vecs[[i]] <- lazy_max_vec(sim_inputs[,i], lP, brks[[i]], l_0)
+}
+```
+
+and its counterpart for two-dimensional bins for each pairwise combination of inputs.
+
+```{r max_mat}
+mats <- lapply(seq_len(n_input), function(i) list())
+for (i in 1:(n_input - 1)) {
+  for (j in (i + 1):n_input) {
+    mats[[i]][[j]] <- lazy_max_mat(sim_inputs[,i], sim_inputs[,j], 
+                        lP, brks[[i]], brks[[j]], l_0)
+  }
+}
+```
+
+Now let's plot something useful. We want a $5 \times 5$ panel of plots (as we have five inputs). On its diagonal we'll put the one-dimensional binned $\ell(z \mid x)$; on its lower diagonal we'll put pairwise, binned $\ell(z \mid x)$; and on its upper diagonal we'll put pairwise `raw' $\ell(z \mid x)$.
+
+```{r grid}
+grid <- diag(1:5)
+pairwise_index <- 1:sum(1:(n_input - 1))
+grid[lower.tri(grid)] <- max(grid) + pairwise_index
+grid[upper.tri(grid)] <- max(grid) + pairwise_index
+```
+
+First we'll calculate the posterior probability ratios for each simulator run
+
+```{r ratios}
+ratio <- exp(lP - l_0)
+```
+
+and then we'll set up the colour scale palettes, stopping at $10^{-5}$ (so any ratio ${} < 10^{-5}$ maps to $10^{-5}$).
+
+```{r lower}
+ratio_seq_log10 <- pretty(log10(pmax(ratio, 1e-5)))
+ratio_mids_log10 <- ratio_seq_log10[-1] - .5 * diff(ratio_seq_log10)
+ratio_seq <- 10^ratio_seq_log10
+ratio_pal <- rev(grey(seq(0, 1, l = length(ratio_seq) - 1)))
+ratio_col <- ratio_pal[as.integer(cut(ratio, ratio_seq))]
+```
+
+These lines produce the plots in the order of diagonals (i.e. binned one-dimensional), lower triangle (i.e. binned pairwise), upper triangle (i.e. raw pairwise), and ending with adding the colour scale key.
+
+```{r diag, fig.width = 8.5, fig.height = 8, fig.align = 'center'}
+layout(cbind(grid, max(grid) + 1), width = c(rep(1, n_input), .2))
+par(mar = rep(.5, 4), oma = c(3, 3, 0, 4))
+
+# one-dimensional on diagonal
+for (i in 1:n_input) {
+  rep_x <- c(1, rep(2:(length(brks[[i]]) - 1), each = 2), length(brks[[i]]))
+  plot(brks[[i]][rep_x], rep(vecs[[i]], each = 2), type = "l", lwd = 2, 
+       axes = FALSE, ylim = range(unlist(vecs)), xlim = c(-1, 1))
+  box()
+  if (i == 1) {
+    axis(side = 2, cex.axis = .7)
+    mtext(side = 2, text = paste("input", i), line = 2, cex = .7)
+  }
+  if (i == n_input) {
+    axis(side = 1, cex.axis = .7)
+    mtext(side = 1, text = paste("input", i), line = 2, cex = .7)
+  }
+}
+
+# pairwise binned on lower triangle
+for (i in 1:(n_input - 1)) {
+  for (j in (i + 1):n_input) {
+    plot_ij <- list(x = brks[[i]], y = brks[[j]], z = mats[[i]][[j]])
+    image(plot_ij, col = ratio_pal, breaks = ratio_seq, axes = FALSE)
+    box()
+  if (i == 1) {
+    axis(side = 2, cex.axis = .7)
+    mtext(side = 2, text = paste("input", j), line = 2, cex = .7)
+  }
+  if (j == n_input) {
+    axis(side = 1, cex.axis = .7)
+    mtext(side = 1, text = paste("input", i), line = 2, cex = .7)
+  }
+}
+}
+
+# pairwise raw on upper triangle
+for (i in 2:n_input) {
+  for (j in 1:(i - 1)) {
+    plot(sim_inputs[, i], sim_inputs[, j], bg = ratio_col, pch = 21, axes = FALSE)
+    box()
+  }
+}
+
+# color scale on right-hand side
+key <- list(x = 1, y = ratio_seq_log10, z = t(ratio_mids_log10))
+image(key, col = ratio_pal, breaks = ratio_seq_log10, axes = FALSE)
+box()
+axis(side = 4, las = 2, at = ratio_seq_log10, labels = ratio_seq)
+```
+
+## NROY-ing some of the input space
+
+I've not kept up with how this is done, so this might be rather crude. What we'll consider here is ruling out parts of space for which $\ell(z \mid x) - \ell_0 < \log(0.001)$. I don't know if this is easily done in a more-than-two-dimensional way, so here a simple two-dimensional way will be considered. The idea will be to assume that, for each pair of inputs, the NROY region is convex and anything within its hull is not implausible.
+
+We'll start with a not-necessarily-convex approximation to this region.
+
+```{r nroy1}
+nroy <- lapply(mats, function(y) lapply(y, function(x) x > 1e-3))
+```
+
+Then we'll write a (again a rather inefficient, yet verbose) function to identify convex hulls. (MASS::chull() will do this for a set of points, but given the rather coarse bins used, and rather small number of inputs, given the input dimension and high output variation, it's been avoided here.)
+
+```{r convex}
+make_convex <- function(x) {
+if (is.matrix(x)) {
+  nr <- nrow(x)
+  nc <- ncol(x)
+  pass1 <- suppressWarnings(apply(x, 1, function(x) range(which(x))))
+  pass1[!is.finite(pass1)] <- 0
+  x <- sapply(seq_len(nr), function(i) 
+    replace(logical(nc), pass1[1, i]:pass1[2, i], TRUE))
+  pass2 <- suppressWarnings(apply(x, 1, function(x) range(which(x))))
+  pass2[!is.finite(pass2)] <- 0
+  x <- sapply(seq_len(nc), function(i) 
+    replace(logical(nr), pass2[1, i]:pass2[2, i], TRUE))
+  x <- apply(x, 2, as.integer)
+} else {
+  x <- NULL
+}
+x
+}
+```
+
+Next we'll covert the above NROY regions to be convex for each pairwise combination of inputs.
+
+```{r nroy2}
+nroy <- lapply(nroy, function(y) lapply(y, function(x) make_convex(x)))
+nroy <- unlist(nroy, recursive = FALSE)
+nroy <- nroy[!sapply(nroy, is.null)]
+```
+
+Suppose we want a sample of inputs from NROY space. We start with a helper function for interpolation
+
+```{r interp}
+simple_interp <- function(x, y) {
+idr <- as.integer(cut(y[,1], x$x))
+idc <- as.integer(cut(y[,2], x$y))
+x$z[cbind(idr, idc)]
+}
+```
+
+and then we'll create a function to identify whether, for a given pair of inputs, they lie in NROY space
+
+```{r keeper_pair}
+keeper_pairwise <- function(x, y) {
+y <- y[,c(x$idx, x$idy), drop = FALSE]
+simple_interp(x, y)
+}
+```
+
+and finally we'll create a wrapper to loop over all pairwise combinations of inputs
+
+```{r keeper}
+keeper <- function(x, y) {
+if (!inherits(y, "matrix"))
+  y <- matrix(y, 1)
+out <- matrix(vapply(x, keeper_pairwise, y = y, numeric(nrow(y))), nrow(y))
+rowSums(out) == ncol(out)
+}
+```
+
+Next we'll tidy up the pairwise NROY data we've got
+
+```{r nroy_data}
+pairs <- combn(n_input, 2)
+nroy_data <- lapply(seq_along(nroy), function(i) 
+               list(z = nroy[[i]], idx = pairs[1, i], idy = pairs[2, i]))
+nroy_data <- lapply(nroy_data, function(x) 
+               append(list(x = brks[[x$idx]], y = brks[[x$idy]]), x))
+```
+
+which we can then use to sample 100, say, inputs from NROY space
+
+```{r nroy_samp, cache = TRUE}
+n_samp <- 1e2
+samp <- matrix(nrow = n_samp, ncol = 5)
+k <- 1
+while(k < n_samp) {
+  trial <- runif(n_input, -1, 1)
+  if (keeper(nroy_data, trial)) {
+    samp[k, ] <- trial
+    k <- k + 1
+  }
+}
+head(samp)
+```
+
+in a very slow way.
+
+We can end with a sanity check viewing the NROY space's convex pairwise regions (lower triangle), and the marginal (diagonal) and pairwise (upper triangle) samples from it.
+
+```{r nroy_inputs, fig.width = 8.5, fig.height = 8, fig.align = 'center'}
+layout(grid)
+par(mar = rep(.5, 4), oma = c(3, 3, 0, 4))
+
+# histograms on diagonal
+for (i in 1:n_input) {
+  hist(samp[, i], axes = FALSE, probability = TRUE, main = "")
+  box()
+  if (i == 1) {
+    axis(side = 2, cex.axis = .7)
+    mtext(side = 2, text = paste("input", i), line = 2, cex = .7)
+  }
+  if (i == n_input) {
+    axis(side = 1, cex.axis = .7)
+    mtext(side = 1, text = paste("input", i), line = 2, cex = .7)
+  }
+}
+
+# pairwise NROY
+k <- 1
+for (i in 1:(n_input - 1)) {
+  for (j in (i + 1):n_input) {
+    plot_ij <- list(x = brks[[i]], y = brks[[j]], z = nroy[[k]])
+    image(plot_ij, col = grey(1:0), breaks = seq(-.5, 1.5, by = 1), axes = FALSE)
+    k <- k + 1
+    box()
+  if (i == 1) {
+    axis(side = 2, cex.axis = .7)
+    mtext(side = 2, text = paste("input", j), line = 2, cex = .7)
+  }
+  if (j == n_input) {
+    axis(side = 1, cex.axis = .7)
+    mtext(side = 1, text = paste("input", i), line = 2, cex = .7)
+  }
+}
+}
+
+# pairwise samples from NROY
+for (i in 2:n_input) {
+  for (j in 1:(i - 1)) {
+    plot(samp[, i], samp[, j], pch = 20, axes = FALSE)
+    box()
+  }
+}
+```
+
+# Emulation
+
+Obviously, we could --- and perhaps eventually should ---  try and emulate the simulator's outputs, e.g. the numbers of cases on a given day in a given UA, but this sounds like quite a challenge. Instead, to kick things off, we might consider the approach of Oakley \& Youngman (2017), in which the idea is simply to emulate the (logarithm of) the predictive probability surface, given the simulator's inputs. Let's introduce some emulator-friendly notation. Let $f(x) = \ell(z \mid x)$. As usual, let's suppose $f(x) \sim GP(m(x), v(x, \;)),$ where $m(x) = h^T(x) \beta$, with $h()$ comprising some basis functions.
+
+A useful thing to first consider is $h()$'s form. A priori, we might want to hope that the best inputs don't lie on the boundary of $\mathcal{D} = [-1, 1]^5$, input space. Hence, we should consider some form for $h()$ that allows $f()$ not to peak on the boundary of $\mathcal{D}$. For example, $h^T(x) = (1, x_1, \ldots, x_5, x_1^2, \ldots, x_5^2)$ meets this criterion, whereas $h_T(x) = (1, x_1, \ldots, x_5)$ doesn't; so we'll choose the former. However, this doesn't seem ideal, given the relatively small number of simulator runs at our disposal, as it gives $\beta^T = (\beta_1, \ldots, \beta_q)$ with $q = 11$; i.e. a perhaps slightly too large $q$. Are there any more parsimonious forms for $h()$? Nonetheless, we'll proceed with this $h()$.
+
+For $v(\;, \;)$ we'll just use the usual Gaussian covariance form. I'm assuming MetaWards is stochastic, so it must have a nugget. Rather more important is what's emulated.
+
+Firstly, we'll just consider building an emulator on the NROY region. So, let's ditch those inputs outside of that region
+
+```{r design}
+in_nroy <- keeper(nroy_data, as.matrix(sim_inputs))
+D <- as.matrix(sim_inputs)[in_nroy, ]
+```
+
+which loses `r nrow(sim_inputs) - nrow(D)` simulator runs (and might be a few too many to drop, given that we've got a five-dimensional input space). Now we'll put together the bases for the mean function.
+
+```{r basis}
+h <- function(x) c(1, x, x^2)
+H <- t(apply(D, 1, h))
+```
+
+Let's consider whether some form of variance stabilisation, via a Box-Cox transformation might help. We'll negate the response, for positivity.
+
+```{r boxcox, fig.height = 5, fig.width = 6, out.extra = 'width = 10cm', fig.align = 'center'}
+f_0 <- 1 + l_0 - lP[in_nroy]
+boxcox(lm(f_0 ~ H))
+```
+
+It appears that a logarithmic(ish) transformation might be optimal, so we might emulate $f(x) = \log(1 + \ell_0 - \ell(z \mid z))$. However, given $\ell$ already uses a logarithmic transformation, this might be a bit over the top, and, e.g., something like a square-root transformation might be better. Both were tested, and indeed the latter seemed a bit better, but this warrants more investigation. Nonetheless, we'll process with the square-root transformation, i.e. $f(x) = \sqrt(\ell0 - \ell(z \mid x))$. Let $f(D)$ denote the vector of simulator outputs over the input design $D$. 
+
+```{r f, fig.height = 6, fig.width = 7, out.extra = 'width = 12cm', fig.align = 'center'}
+# trans <- function(x, x0) log1p(x0 - x)
+# itrans <- function(x, x0) x0 - expm1(x)
+trans <- function(x, x0) sqrt(x0 - x)
+itrans <- function(x, x0) x0 - x^2
+f_D <- trans(lP[in_nroy], l_0)
+hist(f_D, 12, main = "Histogram of f(D)", xlab = "f(D)", prob = TRUE)
+```
+
+```{r loglik, echo = FALSE}
+makeA <- function(X, phi, n) {
+X <- t(X) / phi
+R <- crossprod(X)
+S <- matrix(diag(R), nrow = n, ncol = n)
+exp(2 * R - S - t(S))
+}
+
+loglik.Gaussian.try <- function(delta, X, n, q, H, fD) { # negative log likelihood of 2*log(roughness parameter), the transformed roughness parameters
+nug <- 1 / (1 + exp(-delta[1]))
+phi <- exp(delta[-1] / 2)
+A <- (1 - nug) * makeA(X, phi, n) + diag(nug, n)
+L <- chol(A)
+w <- backsolve(L, H, transpose=TRUE)
+Q <- crossprod(w, w)
+cholQ <- chol(Q)
+mat1 <- backsolve(L, fD, transpose=TRUE)
+mat2 <- backsolve(L, mat1)
+mat3 <- backsolve(cholQ, t(H), transpose=TRUE)
+mat4 <- mat3 %*% mat2
+betahat <- backsolve(cholQ, mat4)
+Hbeta <- H %*% betahat
+fDminHbeta <- fD - Hbeta
+w2 <- backsolve(L, fDminHbeta, transpose=TRUE)
+sigmahat.prop <-  crossprod(w2, w2)[1, 1] / (n - q - 2)
+out <- 0.5 * (n - q) * log(sigmahat.prop) + sum(log(diag(L))) + sum(log(diag(cholQ)))
+attr(out, "beta") <- betahat
+attr(out, "sigsq") <- sigmahat.prop
+attr(out, "phi") <- phi
+attr(out, "nug") <- nug
+attr(out, "A") <- A
+attr(out, "res") <- fDminHbeta
+out
+}
+
+loglik.Gaussian <- function(delta, X, n, q, H, fD) { 
+out <- try(loglik.Gaussian.try(delta, X, n, q, H, fD), silent=TRUE)
+if (inherits(out, "try-error"))
+  return(1e6)
+else
+  return(out)
+}
+```
+
+We'll use the negated log-posterior `logLik.Gaussian` of a Gaussian process to fit an emulator. This takes arguments `delta`, the halved and log-transformed roughness parameters preceded by a nugget, `X`, the `n`-row matrix of simulator inputs, `n`, the number of simulator runs, `q`, the number of basis functions, `H`, the `n` $\times$ `q` design matrix, and `fD`, the `n`-vector of simulator outputs. Note: we should change this to use `mogp`. In the mean time, we'll set `loglik.Gaussian`'s arguments in a tidy way. 
+
+```{r init}
+delta0 <- numeric(n_input + 1)
+X0 <- D
+n0 <- nrow(D)
+q0 <- ncol(H)
+H0 <- H
+fD0 <- f_D
+```
+
+Then we'll try and fit the emulator
+
+```{r fit}
+fit <- nlm(loglik.Gaussian, delta0, X = X0, n = n0, q = q0, H = H0, fD = fD0)
+fit
+```
+
+which seems to have worked, given `fit$gradient` $\simeq 0$. 
+
+If we want to emulate the log predictive probability surface, we should first consider whether the emulator fits its training data okay. We'll use function `post_mean` to give the emulator's posterior mean, for arbitrary input $x$. This has arguments `x`, the input $x$, `X` the simulator inputs from the training data, `beta`, the estimate $\beta$, `nug`, the estimated nugget, `suff`, the 'suffix', i.e. $A^{-1}(f(D) - H \hat \beta)$, `rho`, a multiplier, and `nroy`, data on the NROY region compatible with `keeper()`.
+
+```{r post_mean, echo = FALSE}
+post_mean <- function(x, X, beta, phi, nug, suff, rho = 1, nroy) {
+if (any(abs(x) > 1)) return(-1e20)
+if (!keeper(nroy, matrix(x, 1))) return(-1e20)
+mu <- h(x) %*% beta
+tx <- (1 - nug) * exp(-colSums(((t(X) - x) / phi)^2))
+rho * (mu[1, 1] + crossprod(tx, suff)[1, 1])
+}
+```
+
+Then we'll form the emulator, `emulator`, and calculate the posterior mean for each of the training inputs (which isn't the value of the simulator's output, because of the nugget).
+
+```{r mu_star}
+emulator <- attributes(loglik.Gaussian(fit$estimate, X0, n0, q0, H0, fD0))
+emulator$suff <- solve(emulator$A, emulator$res)
+mu_star <- apply(X0, 1, function(x) post_mean(x, X = X0, beta = emulator$beta, 
+                 phi = emulator$phi, nug = emulator$nu, suff = emulator$suff, 
+                 rho = 1, nroy = nroy_data))
+```
+
+Then let's plot the negated training response data against the negated emulator posterior mean.
+
+```{r post_plot, fig.height = 6, fig.width = 6, out.extra = 'width = 10cm', fig.align = 'center'}
+plot( - mu_star, - fD0, xlab = "posterior mean (negated)", ylab = "-f(D)", asp = 1)
+title("Simulator output vs. emulator posterior mean")
+abline(0, 1, lty = 2)
+```
+
+The agreement is not bad, especially since we've kept at least one redundant input: it looks like the emulator could help us rule out some more of input space. So, let's give it a go.
+
+```{r gibbs_fn, echo = FALSE}
+gibbs <- function(inits, nllh, ..., n.chain=1e2, n.mcmc=1e1, reportOutput=FALSE, plot.every=NULL, bridge = 1, nc0 = NULL) {
+
+inits.mcmc <- inits
+n.par <- length(inits.mcmc)
+sd.prop <- rep(.1, n.par)
+acceptprop <- function(x) length(unique(x)) / length(x)
+if (is.null(nc0)) {
+  par.mat <- matrix(inits.mcmc, n.par, n.chain)
+} else {
+  par.mat <- matrix(inits.mcmc, n.par, nc0)
+}
+ll.old <- ll.chain <- bridge * nllh(inits.mcmc, ...)
+ll.best <- ll.old
+best <- inits.mcmc
+beta1 <- attr(best, "beta") <- attr(ll.old, "beta")
+
+for (l in 1:n.mcmc) {
+
+accept.prop <- apply(par.mat, 1, acceptprop)
+sd.prop[accept.prop < .2] <- sd.prop[accept.prop < .2] / 2
+sd.prop[accept.prop > .4] <- 2 * sd.prop[accept.prop > .4]
+last <- par.mat[,ncol(par.mat)]
+if (!is.null(nc0) & l < n.mcmc) {
+  par.mat <- matrix(inits.mcmc, n.par, nc0)
+  ncl <- nc0
+} else {
+  par.mat <- matrix(inits.mcmc, n.par, n.chain)
+  ncl <- n.chain
+}
+par.mat[,1] <- last
+
+for (i in 2:ncl) {
+unifs <- runif(n.par)
+par.mat[,i] <- par.mat[,i -1]
+prop <- par.mat[,i - 1] + rnorm(n.par, 0, sd.prop)
+for (j in 1:n.par) {
+old <- new <- par.mat[,i]
+new[j] <- prop[j]
+attr(new, "beta") <- beta1
+ll.new <- bridge * nllh(new, ...)
+if (exp(ll.new - ll.old) > unifs[j]) {
+par.mat[j, i] <- prop[j]
+ll.old <- ll.new
+beta1 <- attr(ll.old, "beta")
+}
+if (ll.new > ll.best) {
+ll.best <- ll.new
+best <- par.mat[,i]
+attr(best, "beta") <- attr(ll.new, "beta")
+}
+}
+if (!is.null(plot.every)) if (i / plot.every == round(i / plot.every)) ts.plot(ll.chain)
+now <- par.mat[,i]
+attr(now, "beta") <- beta1
+ll.chain <- c(ll.chain,  bridge * nllh(now, ...))
+}
+if (reportOutput) {
+ts.plot(ll.chain)
+print(list(i, ll.best))
+print(dput(best))
+}
+}
+
+attr(best, "mat") <- par.mat
+return(best)
+
+}
+```
+
+We'll use function `gibbs`, which is a basic Gibbs' sampler (whose details are intentionally omitted, for brevity). First we'll set up a function to give the emulated log predictive probability for input $x$.
+
+```{r em_pred}
+fx <- function(x, X, beta, phi, nug, suff, rho = 1, nroy, x0) {
+  out <- post_mean(x, X, beta, phi, nug, suff, rho = 1, nroy)
+  itrans(out, x0)
+}
+```
+
+Then we'll run the Gibbs' sampler for `nc` iterations, thinning every 100,
+
+```{r gibbs}
+nc <- 1e5
+thin <- seq_len(nc) %% 100 == 0
+gibbs_samp <- gibbs(numeric(5), post_mean, X = X0, beta = emulator$beta, 
+              phi = emulator$phi, nug = emulator$nug, suff = emulator$suff, 
+              rho = 1, nroy = nroy_data, bridge = 1, 
+              n.chain = nc, n.mcmc = 10, nc0 = 1e3)
+new_X <- attr(gibbs_samp, "mat")[, thin]
+```
+
+which is painfully slow. (Ensuring points are in NROY space is the bottleneck.)
+
+Finally, let's take a look at the sampled inputs, with histograms on the diagonal, two-dimensional kernel density estimates on the lower triangle, and the raw inputs on the upper diagonal.
+
+```{r new_wave, fig.width = 8.5, fig.height = 8, fig.align = 'center'}
+layout(cbind(grid, max(grid) + 1), width = c(rep(1, n_input), .2))
+par(mar = rep(.5, 4), oma = c(3, 3, 0, 4))
+kde_seq <- c(t(outer(10^seq(-6, 0), c(1, 5))))
+kde_seq_log10 <- log10(kde_seq)
+kde_mids_log10 <- kde_seq_log10[-1] - .5 * diff(kde_seq_log10)
+kde_pal <- rev(grey(seq(0, 1, l = length(kde_seq) - 1)^.5))
+
+# histograms on diagonal
+for (i in 1:n_input) {
+  hist(new_X[i, ], breaks = seq(-1, 1, by = .2), 
+                     main = "", axes = FALSE, prob = TRUE)
+  box()
+  if (i == 1) {
+    axis(side = 2, cex.axis = .7)
+    mtext(side = 2, text = paste("input", i), line = 2, cex = .7)
+  }
+  if (i == n_input) {
+    axis(side = 1, cex.axis = .7)
+    mtext(side = 1, text = paste("input", i), line = 2, cex = .7)
+  }
+}
+
+# pairwise two-dimensional kernel density estimates
+for (i in 1:(n_input - 1)) {
+  for (j in (i + 1):n_input) {
+    k <- kde2d(new_X[i, ], new_X[j, ], n = 20, lims = c(-1, 1, -1, 1))
+    image(k, col = kde_pal, breaks = kde_seq, axes = FALSE)
+    box()
+  if (i == 1) {
+    axis(side = 2, cex.axis = .7)
+    mtext(side = 2, text = paste("input", j), line = 2, cex = .7)
+  }
+  if (j == n_input) {
+    axis(side = 1, cex.axis = .7)
+    mtext(side = 1, text = paste("input", i), line = 2, cex = .7)
+  }
+}
+}
+
+# pairwise samples based on emulator mean
+for (i in 2:n_input) {
+  for (j in 1:(i - 1)) {
+    plot(new_X[i, ], new_X[j, ], pch = 20, axes = FALSE)
+    box()
+  }
+}
+
+# color scale on right-hand side
+key <- list(x = 1, y = kde_seq_log10, z = t(kde_mids_log10))
+image(key, col = kde_pal, breaks = kde_seq_log10, axes = FALSE)
+box()
+axis(side = 4, las = 2, at = kde_seq_log10, labels = kde_seq)
+```
+
+# Extensions and issues
+
+## What's being calibrated
+
+The assumption in this calibration is that MetaWards' counts per UA match those in the PHE data, which correspond to COVID-19 test date. There must be some model discrepancy here and there is clearly a lot of scope for thinking about how to better align the simulator output and observations.
+
+## Non-independence of cases in different UAs
+
+It's probably not okay to assume that, for the observations, numbers of COVID-19 cases in one UA are independent of those in another. Two partial solutions to this spring to mind: 1), based on Bayesian inference for misspecified models, is to adjust the posterior predictive probabilities according a power (where $0 < \text{power} \leq 1$), which can be calculated by considering Hessians and score statistic variances (which, for now, I won't elaborate on); or 2) to assume some kind of dependence model, such as a Gaussian Markov random field. Looking at the output of the `best' simulator run, dependence in the simulator output also appears present, and may be trickier to allow for. 1) is nearly equivalent to reducing the discrepancy parameter $\lambda$ a bit.
+
+## Multiple COVID-19 contractions
+
+Ultimately, whether a person contracts COVID-19 is assumed to follow a Bernoulli distribution. If a person can contract it multiple times, this assumption is clearly wrong. I don't know whether the MetaWards model allows for this. But for some reason it did allow numbers of cases in UAs greater than the UA population (assuming that my matching of the two was correct). If the proportion of cases per UA doesn't approach unity, I don't think this is a big issue; but if it does, the distributional assumptions of the calibration model will need changing.
+
+## Wards and not UAs
+
+I don't know if the calibration data, which are at UA level, are available at ward level. If they are, the calibration methodology should readily transfer. Issues with between-ward dependence might become more necessary to address, though.
+
+## Multiple days' data
+
+The GitHub repository seems to have simulator output for `key days'. I couldn't actually find what these days were. If we let $z_t$ denote the observed counts on day $t$, $y_t(x)$ denote the corresponding simulator counts and assume independence between different days, then we can work with $\sum_t \ell(z_t \mid x)$. As with independence between UAs, independence between different time points may not be a reasonable assumption. If this is to be addressed, the autoregressive equivalent of a Gaussian Markov random field might be useful.
+
+## Redundant inputs
+
+Input 5 doesn't appear to be doing much, which isn't surprising if it doesn't kick in until day 133.
+
+## Direct MCMC
+
+Oakley \& Youngman (2017) weren't able to calibrate their simulator by direct MCMC. However, this might be possible for MetaWards. I don't know how long a MetaWards run takes, but if it's not too long, then this could be considered. Alternatively, some sort of hybrid MCMC might make it possible.
