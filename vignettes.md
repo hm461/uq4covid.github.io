@@ -35,4 +35,10 @@ Please read the [**guide to contributing vignettes**]({{ site.baseurl }}/vignett
 - [Emulating MetaWards output]({{ site.baseurl }}/vignettes/AdventuresInEmulators)
 
 
+## Calibration
+
+- [Calibrating MetaWards output]({{ site.baseurl }}/vignettes/BinomialCalibration)
+
+
+
 
