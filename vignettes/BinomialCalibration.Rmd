@@ -623,7 +623,7 @@ H <- t(apply(D, 1, h))
 
 Let's consider whether some form of variance stabilisation, via a Box-Cox transformation might help. We'll negate the response, for positivity.
 
-```{r boxcox, fig.height = 5, fig.width = 6, out.extra = 'width = 10cm', fig.align = 'center'}
+```{r boxcox}
 f_0 <- 1 + l_0 - lP[in_nroy]
 boxcox(lm(f_0 ~ H))
 ```

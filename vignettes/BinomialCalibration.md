@@ -763,7 +763,7 @@ f_0 <- 1 + l_0 - lP[in_nroy]
 boxcox(lm(f_0 ~ H))
 ```
 
-<img src="figure/BinomialCalibration//boxcox-1.png" title="plot of chunk boxcox" alt="plot of chunk boxcox" width = 10cm style="display: block; margin: auto;" />
+![plot of chunk boxcox](figure/BinomialCalibration//boxcox-1.png)
 
 It appears that a logarithmic(ish) transformation might be optimal, so we might emulate $f(x) = \log(1 + \ell_0 - \ell(z \mid z))$. However, given $\ell$ already uses a logarithmic transformation, this might be a bit over the top, and, e.g., something like a square-root transformation might be better. Both were tested, and indeed the latter seemed a bit better, but this warrants more investigation. Nonetheless, we'll process with the square-root transformation, i.e. $f(x) = \sqrt(\ell0 - \ell(z \mid x))$. Let $f(D)$ denote the vector of simulator outputs over the input design $D$. 
 
