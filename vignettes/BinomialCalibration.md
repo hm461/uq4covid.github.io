@@ -7,6 +7,7 @@ output:
     number_sections: true
     keep_md: true
 urlcolor: blue
+layout: default
 ---
 
 <style type="text/css">
@@ -41,7 +42,7 @@ library(rgdal)
 
 # Introduction
 
-The aim of this document is to think about how to calibrate COVID-19 simulations from the MetaWards model. Blah blah blah.
+The aim of this document is to think about how to calibrate COVID-19 simulations from the MetaWards model. 
 
 # Various COVID-19 data
 
@@ -302,11 +303,11 @@ Consider a single UA. Let $Z$ denote its observed number of cases and $n$ its po
 
 Next, we'll assume that the simulator takes input $x$, and gives number of cases $Y(x)$, where \begin{equation} Y(x) \sim Binomial(m, \theta(x)), \label{y} \end{equation} with $\theta(x)$ the simulator's probability that an individual contracts COVID-19. (I suppose $m = n$, or at least they would be equal if they represented the same time point, but we'll return to this.)
 
-Forgetting discrepancy, for the time being, in rather simple form we want to assume that $\theta^* = \theta(x^*)$ for some calibrated input $x^*$. From \eqref{y}, $\pi(\theta(x) \mid y(x), m)$ is of $Beta(1 + y(x), 1 + m - y(x))$ form, and hence \begin{align*} \pi(z \mid y(x), m, n) &= \int \pi(z \mid \theta(x), n) \pi(\theta(x) \mid y(x), m) d\theta(x) \\ &= \dfrac{{}^nC_z B(1 + y(x) + z, 1 + m - y(x) + n - z)}{B(1 + y(x), 1 + m - y(x))}, \end{align*} where $B(\, , \,)$ is the Beta function.
+Forgetting discrepancy, for the time being, in rather simple form we want to assume that $\theta^* = \theta(x^*)$ for some calibrated input $x^*$. From \eqref{y}, $\pi(\theta(x) \mid y(x), m)$ is of $Beta(1 + y(x), 1 + m - y(x))$ form, and hence \begin{align*} \pi(z \mid y(x), m, n) &= \int \pi(z \mid \theta(x), n) \pi(\theta(x) \mid y(x), m) d\theta(x) \\ &= \dfrac{ { }^nC_z B(1 + y(x) + z, 1 + m - y(x) + n - z)}{B(1 + y(x), 1 + m - y(x))}, \end{align*} where $B(\, , \,)$ is the Beta function.
 
 ## Discrepancy, through $\lambda$
 
-Oakley \& Youngman's approach to allowing for simulator discrepancy was to assume that instead of simulations being representative of a sample of size $m$, they are representative of a sample of size $\lambda m$, $0 < \lambda < 1$. This is perhaps quite an intuitive way of sensibly specifying discrepancy. For example, the average UA population is $m \simeq 165,000$. Suppose the simulator has the perfect input. Would it get $Y(x)$ perfectly? Of course not. What if $m = 165$, i.e. $\lambda = 0.001$? I think we need to be thinking of very small $\lambda \ll 0.001$. The upshot of this is that for calibration we'll consider \begin{equation} \label{calib} \pi(z \mid y(x), m, n, \lambda) = \dfrac{{}^nC_z B(1 + \lambda y(x) + z, 1 + \lambda[m - y(x)] + n - z)}{B(1 + \lambda y(x), 1 + \lambda[m - y(x)])}. \end{equation} This is all described rather more formally in Oakley \& Youngman (2017).
+Oakley \& Youngman's approach to allowing for simulator discrepancy was to assume that instead of simulations being representative of a sample of size $m$, they are representative of a sample of size $\lambda m$, $0 < \lambda < 1$. This is perhaps quite an intuitive way of sensibly specifying discrepancy. For example, the average UA population is $m \simeq 165,000$. Suppose the simulator has the perfect input. Would it get $Y(x)$ perfectly? Of course not. What if $m = 165$, i.e. $\lambda = 0.001$? I think we need to be thinking of very small $\lambda \ll 0.001$. The upshot of this is that for calibration we'll consider \begin{equation} \label{calib} \pi(z \mid y(x), m, n, \lambda) = \dfrac{ { }^nC_z B(1 + \lambda y(x) + z, 1 + \lambda[m - y(x)] + n - z)}{B(1 + \lambda y(x), 1 + \lambda[m - y(x)])}. \end{equation} This is all described rather more formally in Oakley \& Youngman (2017).
 
 ## Multiple UAs
 
