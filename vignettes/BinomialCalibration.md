@@ -2,35 +2,8 @@
 title: "Some out-loud thoughts on calibrating MetaWards for COVID-19"
 author: "Ben Youngman"
 date: "25/05/2020"
-output: 
-  html_document:
-    number_sections: true
-    keep_md: true
-urlcolor: blue
-layout: default
+layout: vignette
 ---
-
-<style type="text/css">
-
-body{ /* Normal  */
-  font-size: 14px;
-}
-h1.title {
-  font-size: 30px;
-}
-h1 { /* Header 1 */
-  font-size: 24px;
-}
-h2 { /* Header 2 */
-  font-size: 20px;
-}
-code.r{ /* Code block */
-  font-size: 12px;
-}
-pre { /* Code block - determines code spacing between lines */
-  font-size: 12px;
-}
-</style>
 
 
 
@@ -297,21 +270,31 @@ That's it for now in terms of preparing the data.
 
 ## Outline
 
-Of the various ways to calibrate the MetaWards model, [Oakley \& Youngman (Technometrics, 2017)](https://doi.org/10.1080/00401706.2015.1125391) seems a viable option, which works as follows. Out of laziness, I'll just refer to the MetaWards model as the `simulator' from now on.
+Of the various ways to calibrate the MetaWards model, [Oakley & Youngman (Technometrics, 2017)](https://doi.org/10.1080/00401706.2015.1125391) seems a viable option, which works as follows. Out of laziness, I'll just refer to the MetaWards model as the `simulator' from now on.
 
-Consider a single UA. Let $Z$ denote its observed number of cases and $n$ its population size, i.e. the number of potential cases (on a given day). (This assumes someone can only contract once, which we'll return to.) Then, of course, \[ Z \sim Binomial(n, \theta^*)\] where $\theta^*$ is the probability of an individual contracting COVID-19. 
+Consider a single UA. Let $Z$ denote its observed number of cases and $n$ its population size, i.e. the number of potential cases (on a given day). (This assumes someone can only contract once, which we'll return to.) Then, of course, $Z \sim Binomial(n, \theta^\*)$ where $\theta^\*$ is the probability of an individual contracting COVID-19. 
 
 Next, we'll assume that the simulator takes input $x$, and gives number of cases $Y(x)$, where \begin{equation} Y(x) \sim Binomial(m, \theta(x)), \label{y} \end{equation} with $\theta(x)$ the simulator's probability that an individual contracts COVID-19. (I suppose $m = n$, or at least they would be equal if they represented the same time point, but we'll return to this.)
 
-Forgetting discrepancy, for the time being, in rather simple form we want to assume that $\theta^* = \theta(x^*)$ for some calibrated input $x^*$. From \eqref{y}, $\pi(\theta(x) \mid y(x), m)$ is of $Beta(1 + y(x), 1 + m - y(x))$ form, and hence \begin{align*} \pi(z \mid y(x), m, n) &= \int \pi(z \mid \theta(x), n) \pi(\theta(x) \mid y(x), m) d\theta(x) \\ &= \dfrac{ { }^nC_z B(1 + y(x) + z, 1 + m - y(x) + n - z)}{B(1 + y(x), 1 + m - y(x))}, \end{align*} where $B(\, , \,)$ is the Beta function.
+Forgetting discrepancy, for the time being, in rather simple form we want to assume that $\theta^\* = \theta(x^\*)$ for some calibrated input $x^\*$. From the equation for $Y$ we have $\pi(\theta(x) \mid y(x), m)$ is of $Beta(1 + y(x), 1 + m - y(x))$ form, and hence 
+
+$$\pi(z \mid y(x), m, n) = \int \pi(z \mid \theta(x), n) \pi(\theta(x) \mid y(x), m) d\theta(x)$$
+
+$$= \dfrac{ { }^nC_z B(1 + y(x) + z, 1 + m - y(x) + n - z)}{B(1 + y(x), 1 + m - y(x))}$$ 
+
+where $B(\, , \,)$ is the Beta function.
 
 ## Discrepancy, through $\lambda$
 
-Oakley \& Youngman's approach to allowing for simulator discrepancy was to assume that instead of simulations being representative of a sample of size $m$, they are representative of a sample of size $\lambda m$, $0 < \lambda < 1$. This is perhaps quite an intuitive way of sensibly specifying discrepancy. For example, the average UA population is $m \simeq 165,000$. Suppose the simulator has the perfect input. Would it get $Y(x)$ perfectly? Of course not. What if $m = 165$, i.e. $\lambda = 0.001$? I think we need to be thinking of very small $\lambda \ll 0.001$. The upshot of this is that for calibration we'll consider \begin{equation} \label{calib} \pi(z \mid y(x), m, n, \lambda) = \dfrac{ { }^nC_z B(1 + \lambda y(x) + z, 1 + \lambda[m - y(x)] + n - z)}{B(1 + \lambda y(x), 1 + \lambda[m - y(x)])}. \end{equation} This is all described rather more formally in Oakley \& Youngman (2017).
+Oakley & Youngman's approach to allowing for simulator discrepancy was to assume that instead of simulations being representative of a sample of size $m$, they are representative of a sample of size $\lambda m$, $0 < \lambda < 1$. This is perhaps quite an intuitive way of sensibly specifying discrepancy. For example, the average UA population is $m \simeq 165,000$. Suppose the simulator has the perfect input. Would it get $Y(x)$ perfectly? Of course not. What if $m = 165$, i.e. $\lambda = 0.001$? I think we need to be thinking of very small $\lambda \ll 0.001$. The upshot of this is that for calibration we'll consider \begin{equation} \label{calib} \pi(z \mid y(x), m, n, \lambda) = \dfrac{ { }^nC_z B(1 + \lambda y(x) + z, 1 + \lambda[m - y(x)] + n - z)}{B(1 + \lambda y(x), 1 + \lambda[m - y(x)])}. \end{equation} This is all described rather more formally in Oakley & Youngman (2017).
 
 ## Multiple UAs
 
-Let's extend the notation to allow for multiple UAs. For the observations, let $Z_j$ denote the number of cases in UA $j$ of size $n_j$ for $j=1, \ldots, J$ with ${\bf Z} = (Z_1, \ldots, Z_J)$ and ${\bf n} = (n_1, \ldots, n_J)$. (Given the above we have $J=305$.) Let $Y_j(x)$ and $m_j$ be corresponding quantities for the simulator, and let ${\bf Y}(x) = (Y_1(x), \ldots, Y_J(x))$ and ${\bf m} = (m_1, \ldots, m_J)$. Then suppose \[\pi({\bf z} \mid {\bf y}(x), {\bf m}, {\bf n}, \lambda) = \prod_{j=1}^J \pi(z_j \mid y_j(x), m_j, n_j, \lambda).\] Above we're assuming independence. Should we assume independence from UA to UA? I doubt it. A couple of suggestions are given later for partial remedies.
+Let's extend the notation to allow for multiple UAs. For the observations, let $Z_j$ denote the number of cases in UA $j$ of size $n_j$ for $j=1, \ldots, J$ with ${\bf Z} = (Z_1, \ldots, Z_J)$ and ${\bf n} = (n_1, \ldots, n_J)$. (Given the above we have $J=305$.) Let $Y_j(x)$ and $m_j$ be corresponding quantities for the simulator, and let ${\bf Y}(x) = (Y_1(x), \ldots, Y_J(x))$ and ${\bf m} = (m_1, \ldots, m_J)$. Then suppose 
+
+$$\pi({\bf z} \mid {\bf y}(x), {\bf m}, {\bf n}, \lambda) = \prod_{j=1}^J \pi(z_j \mid y_j(x), m_j, n_j, \lambda).$$ 
+
+Above we're assuming independence. Should we assume independence from UA to UA? I doubt it. A couple of suggestions are given later for partial remedies.
 
 # Calibration in action
 
@@ -369,7 +352,7 @@ Then let's plot of histogram of $\ell(z \mid x_i)$.
 hist(lP, main = "Histogram of l(z | x_i)", xlab = "l(z | x_i)")
 ```
 
-<img src="figure/BinomialCalibration.Rmd//pi_z_hist-1.png" width = 10cm style="display: block; margin: auto;" />
+![plot of chunk pi_z_hist](figure/BinomialCalibration//pi_z_hist-1.png)
 
 ## An aside: is the `best' simulator run any good?
 
@@ -383,18 +366,9 @@ l_0 <- max(lP)
 Now we'll plot the observations and cases for the best simulator run. Let's set up the data for this. We're going to need some polygons representing the UAs. We can get these from [this ONS link](https://geoportal.statistics.gov.uk/datasets/local-authority-districts-december-2017-ultra-generalised-clipped-boundaries-in-united-kingdom-wgs84), from which we'll choose the `Shapefile' download. The following reads in the shapefile, and gets rid of any UAs not in our data.
 
 
+
 ```r
 UAs <- readOGR("Local_Authority_Districts__December_2017__Boundaries_in_the_UK__WGS84_.shp")
-```
-
-```
-## OGR data source with driver: ESRI Shapefile 
-## Source: "/home/ben/Dropbox/Exeter/Research/covid/Local_Authority_Districts__December_2017__Boundaries_in_the_UK__WGS84_.shp", layer: "Local_Authority_Districts__December_2017__Boundaries_in_the_UK__WGS84_"
-## with 391 features
-## It has 10 fields
-```
-
-```r
 UAs <- UAs[match(census$id, UAs$lad17cd),]
 ```
 
@@ -427,7 +401,7 @@ axis(side = 4, las = 2)
 box()
 ```
 
-![](figure/BinomialCalibration.Rmd//poly_plot-1.png)<!-- -->
+![plot of chunk poly_plot](figure/BinomialCalibration//poly_plot-1.png)
 
 which shows very little agreement in pattern. I suppose at this early stage the aim is for overall proportions to be in the `right' ball park, which could be a rather large ball park. (Simple exploration shows the best simulator counts might be about a factor of ten too high, on average.)
 
@@ -481,7 +455,7 @@ exp(out - top)
 }
 ```
 
-and calculate $\max_{x_{ik} \in [*,*]} \ell(z \mid x)$ for each input (i.e. the maximum log posterior predictive probability for $x_{ik}$ in a given bin)
+and calculate $\max_{x_{ik} \in [\*,\*]} \ell(z \mid x)$ for each input (i.e. the maximum log posterior predictive probability for $x_{ik}$ in a given bin)
 
 
 ```r
@@ -587,7 +561,7 @@ box()
 axis(side = 4, las = 2, at = ratio_seq_log10, labels = ratio_seq)
 ```
 
-<img src="figure/BinomialCalibration.Rmd//diag-1.png" style="display: block; margin: auto;" />
+<img src="figure/BinomialCalibration//diag-1.png" title="plot of chunk diag" alt="plot of chunk diag" style="display: block; margin: auto;" />
 
 ## NROY-ing some of the input space
 
@@ -695,13 +669,13 @@ head(samp)
 ```
 
 ```
-##            [,1]      [,2]        [,3]        [,4]       [,5]
-## [1,] -0.5849966 0.3097381 -0.07305220  0.10452969 -0.4081853
-## [2,]  0.3903199 0.4980985 -0.07757407 -0.83352934  0.6671552
-## [3,] -0.1738670 0.5493152 -0.10330159 -0.33543390  0.8013714
-## [4,]  0.4878915 0.4340682 -0.25072840 -0.29136721  0.8237690
-## [5,]  0.6754129 0.8977926 -0.12925547  0.42775041  0.1276780
-## [6,]  0.8972558 0.8747081  0.07297072  0.09265538  0.9020092
+##             [,1]       [,2]        [,3]       [,4]       [,5]
+## [1,] -0.19140184 -0.5074520 -0.32961027 -0.8030391 -0.8263202
+## [2,]  0.05140521  0.2274405 -0.26578120  0.5286945 -0.6177316
+## [3,]  0.07943568  0.7889380 -0.03179465 -0.5189582 -0.7819355
+## [4,]  0.43874565  0.4500487 -0.14968935  0.8982657  0.5749921
+## [5,] -0.23772915  0.6093751  0.15474161 -0.3729919 -0.7433910
+## [6,]  0.14320553  0.4746568 -0.56595274  0.2088763  0.9791228
 ```
 
 in a very slow way.
@@ -755,11 +729,11 @@ for (i in 2:n_input) {
 }
 ```
 
-<img src="figure/BinomialCalibration.Rmd//nroy_inputs-1.png" style="display: block; margin: auto;" />
+![plot of chunk nroy_inputs](figure/BinomialCalibration//nroy_inputs-1.png)
 
 # Emulation
 
-Obviously, we could --- and perhaps eventually should ---  try and emulate the simulator's outputs, e.g. the numbers of cases on a given day in a given UA, but this sounds like quite a challenge. Instead, to kick things off, we might consider the approach of Oakley \& Youngman (2017), in which the idea is simply to emulate the (logarithm of) the predictive probability surface, given the simulator's inputs. Let's introduce some emulator-friendly notation. Let $f(x) = \ell(z \mid x)$. As usual, let's suppose $f(x) \sim GP(m(x), v(x, \;)),$ where $m(x) = h^T(x) \beta$, with $h()$ comprising some basis functions.
+Obviously, we could --- and perhaps eventually should ---  try and emulate the simulator's outputs, e.g. the numbers of cases on a given day in a given UA, but this sounds like quite a challenge. Instead, to kick things off, we might consider the approach of Oakley & Youngman (2017), in which the idea is simply to emulate the (logarithm of) the predictive probability surface, given the simulator's inputs. Let's introduce some emulator-friendly notation. Let $f(x) = \ell(z \mid x)$. As usual, let's suppose $f(x) \sim GP(m(x), v(x, \;)),$ where $m(x) = h^T(x) \beta$, with $h()$ comprising some basis functions.
 
 A useful thing to first consider is $h()$'s form. A priori, we might want to hope that the best inputs don't lie on the boundary of $\mathcal{D} = [-1, 1]^5$, input space. Hence, we should consider some form for $h()$ that allows $f()$ not to peak on the boundary of $\mathcal{D}$. For example, $h^T(x) = (1, x_1, \ldots, x_5, x_1^2, \ldots, x_5^2)$ meets this criterion, whereas $h_T(x) = (1, x_1, \ldots, x_5)$ doesn't; so we'll choose the former. However, this doesn't seem ideal, given the relatively small number of simulator runs at our disposal, as it gives $\beta^T = (\beta_1, \ldots, \beta_q)$ with $q = 11$; i.e. a perhaps slightly too large $q$. Are there any more parsimonious forms for $h()$? Nonetheless, we'll proceed with this $h()$.
 
@@ -789,7 +763,7 @@ f_0 <- 1 + l_0 - lP[in_nroy]
 boxcox(lm(f_0 ~ H))
 ```
 
-<img src="figure/BinomialCalibration.Rmd//boxcox-1.png" width = 10cm style="display: block; margin: auto;" />
+<img src="figure/BinomialCalibration//boxcox-1.png" title="plot of chunk boxcox" alt="plot of chunk boxcox" width = 10cm style="display: block; margin: auto;" />
 
 It appears that a logarithmic(ish) transformation might be optimal, so we might emulate $f(x) = \log(1 + \ell_0 - \ell(z \mid z))$. However, given $\ell$ already uses a logarithmic transformation, this might be a bit over the top, and, e.g., something like a square-root transformation might be better. Both were tested, and indeed the latter seemed a bit better, but this warrants more investigation. Nonetheless, we'll process with the square-root transformation, i.e. $f(x) = \sqrt(\ell0 - \ell(z \mid x))$. Let $f(D)$ denote the vector of simulator outputs over the input design $D$. 
 
@@ -803,9 +777,52 @@ f_D <- trans(lP[in_nroy], l_0)
 hist(f_D, 12, main = "Histogram of f(D)", xlab = "f(D)", prob = TRUE)
 ```
 
-<img src="figure/BinomialCalibration.Rmd//f-1.png" width = 12cm style="display: block; margin: auto;" />
+<img src="figure/BinomialCalibration//f-1.png" title="plot of chunk f" alt="plot of chunk f" width = 12cm style="display: block; margin: auto;" />
 
 
+```r
+makeA <- function(X, phi, n) {
+X <- t(X) / phi
+R <- crossprod(X)
+S <- matrix(diag(R), nrow = n, ncol = n)
+exp(2 * R - S - t(S))
+}
+
+loglik.Gaussian.try <- function(delta, X, n, q, H, fD) { # negative log likelihood of 2*log(roughness parameter), the transformed roughness parameters
+nug <- 1 / (1 + exp(-delta[1]))
+phi <- exp(delta[-1] / 2)
+A <- (1 - nug) * makeA(X, phi, n) + diag(nug, n)
+L <- chol(A)
+w <- backsolve(L, H, transpose=TRUE)
+Q <- crossprod(w, w)
+cholQ <- chol(Q)
+mat1 <- backsolve(L, fD, transpose=TRUE)
+mat2 <- backsolve(L, mat1)
+mat3 <- backsolve(cholQ, t(H), transpose=TRUE)
+mat4 <- mat3 %*% mat2
+betahat <- backsolve(cholQ, mat4)
+Hbeta <- H %*% betahat
+fDminHbeta <- fD - Hbeta
+w2 <- backsolve(L, fDminHbeta, transpose=TRUE)
+sigmahat.prop <-  crossprod(w2, w2)[1, 1] / (n - q - 2)
+out <- 0.5 * (n - q) * log(sigmahat.prop) + sum(log(diag(L))) + sum(log(diag(cholQ)))
+attr(out, "beta") <- betahat
+attr(out, "sigsq") <- sigmahat.prop
+attr(out, "phi") <- phi
+attr(out, "nug") <- nug
+attr(out, "A") <- A
+attr(out, "res") <- fDminHbeta
+out
+}
+
+loglik.Gaussian <- function(delta, X, n, q, H, fD) { 
+out <- try(loglik.Gaussian.try(delta, X, n, q, H, fD), silent=TRUE)
+if (inherits(out, "try-error"))
+  return(1e6)
+else
+  return(out)
+}
+```
 
 We'll use the negated log-posterior `logLik.Gaussian` of a Gaussian process to fit an emulator. This takes arguments `delta`, the halved and log-transformed roughness parameters preceded by a nugget, `X`, the `n`-row matrix of simulator inputs, `n`, the number of simulator runs, `q`, the number of basis functions, `H`, the `n` $\times$ `q` design matrix, and `fD`, the `n`-vector of simulator outputs. Note: we should change this to use `mogp`. In the mean time, we'll set `loglik.Gaussian`'s arguments in a tidy way. 
 
@@ -829,20 +846,20 @@ fit
 
 ```
 ## $minimum
-## [1] -72.17476
+## [1] -72.1731
 ## 
 ## $estimate
-## [1]  0.4432728 25.5185941  0.1595578 12.3816173  0.3446785  2.1863237
+## [1]  0.4433143 25.8316078  0.1595267 12.4843729  0.3446816  2.1864518
 ## 
 ## $gradient
-## [1]  1.227818e-05  0.000000e+00  5.243805e-05 -2.581263e-06  1.925571e-05
-## [6] -2.579805e-05
+## [1]  5.826450e-07  5.501343e-10  2.114575e-05 -2.327806e-06  4.931167e-06
+## [6] -1.062669e-05
 ## 
 ## $code
 ## [1] 1
 ## 
 ## $iterations
-## [1] 56
+## [1] 54
 ```
 
 which seems to have worked, given `fit$gradient` $\simeq 0$. 
@@ -850,6 +867,15 @@ which seems to have worked, given `fit$gradient` $\simeq 0$.
 If we want to emulate the log predictive probability surface, we should first consider whether the emulator fits its training data okay. We'll use function `post_mean` to give the emulator's posterior mean, for arbitrary input $x$. This has arguments `x`, the input $x$, `X` the simulator inputs from the training data, `beta`, the estimate $\beta$, `nug`, the estimated nugget, `suff`, the 'suffix', i.e. $A^{-1}(f(D) - H \hat \beta)$, `rho`, a multiplier, and `nroy`, data on the NROY region compatible with `keeper()`.
 
 
+```r
+post_mean <- function(x, X, beta, phi, nug, suff, rho = 1, nroy) {
+if (any(abs(x) > 1)) return(-1e20)
+if (!keeper(nroy, matrix(x, 1))) return(-1e20)
+mu <- h(x) %*% beta
+tx <- (1 - nug) * exp(-colSums(((t(X) - x) / phi)^2))
+rho * (mu[1, 1] + crossprod(tx, suff)[1, 1])
+}
+```
 
 Then we'll form the emulator, `emulator`, and calculate the posterior mean for each of the training inputs (which isn't the value of the simulator's output, because of the nugget).
 
@@ -871,11 +897,80 @@ title("Simulator output vs. emulator posterior mean")
 abline(0, 1, lty = 2)
 ```
 
-<img src="figure/BinomialCalibration.Rmd//post_plot-1.png" width = 10cm style="display: block; margin: auto;" />
+<img src="figure/BinomialCalibration//post_plot-1.png" title="plot of chunk post_plot" alt="plot of chunk post_plot" width = 10cm style="display: block; margin: auto;" />
 
 The agreement is not bad, especially since we've kept at least one redundant input: it looks like the emulator could help us rule out some more of input space. So, let's give it a go.
 
 
+```r
+gibbs <- function(inits, nllh, ..., n.chain=1e2, n.mcmc=1e1, reportOutput=FALSE, plot.every=NULL, bridge = 1, nc0 = NULL) {
+
+inits.mcmc <- inits
+n.par <- length(inits.mcmc)
+sd.prop <- rep(.1, n.par)
+acceptprop <- function(x) length(unique(x)) / length(x)
+if (is.null(nc0)) {
+  par.mat <- matrix(inits.mcmc, n.par, n.chain)
+} else {
+  par.mat <- matrix(inits.mcmc, n.par, nc0)
+}
+ll.old <- ll.chain <- bridge * nllh(inits.mcmc, ...)
+ll.best <- ll.old
+best <- inits.mcmc
+beta1 <- attr(best, "beta") <- attr(ll.old, "beta")
+
+for (l in 1:n.mcmc) {
+
+accept.prop <- apply(par.mat, 1, acceptprop)
+sd.prop[accept.prop < .2] <- sd.prop[accept.prop < .2] / 2
+sd.prop[accept.prop > .4] <- 2 * sd.prop[accept.prop > .4]
+last <- par.mat[,ncol(par.mat)]
+if (!is.null(nc0) & l < n.mcmc) {
+  par.mat <- matrix(inits.mcmc, n.par, nc0)
+  ncl <- nc0
+} else {
+  par.mat <- matrix(inits.mcmc, n.par, n.chain)
+  ncl <- n.chain
+}
+par.mat[,1] <- last
+
+for (i in 2:ncl) {
+unifs <- runif(n.par)
+par.mat[,i] <- par.mat[,i -1]
+prop <- par.mat[,i - 1] + rnorm(n.par, 0, sd.prop)
+for (j in 1:n.par) {
+old <- new <- par.mat[,i]
+new[j] <- prop[j]
+attr(new, "beta") <- beta1
+ll.new <- bridge * nllh(new, ...)
+if (exp(ll.new - ll.old) > unifs[j]) {
+par.mat[j, i] <- prop[j]
+ll.old <- ll.new
+beta1 <- attr(ll.old, "beta")
+}
+if (ll.new > ll.best) {
+ll.best <- ll.new
+best <- par.mat[,i]
+attr(best, "beta") <- attr(ll.new, "beta")
+}
+}
+if (!is.null(plot.every)) if (i / plot.every == round(i / plot.every)) ts.plot(ll.chain)
+now <- par.mat[,i]
+attr(now, "beta") <- beta1
+ll.chain <- c(ll.chain,  bridge * nllh(now, ...))
+}
+if (reportOutput) {
+ts.plot(ll.chain)
+print(list(i, ll.best))
+print(dput(best))
+}
+}
+
+attr(best, "mat") <- par.mat
+return(best)
+
+}
+```
 
 We'll use function `gibbs`, which is a basic Gibbs' sampler (whose details are intentionally omitted, for brevity). First we'll set up a function to give the emulated log predictive probability for input $x$.
 
@@ -900,7 +995,8 @@ gibbs_samp <- gibbs(numeric(5), post_mean, X = X0, beta = emulator$beta,
 new_X <- attr(gibbs_samp, "mat")[, thin]
 ```
 
-which is painfully slow. (Ensuring points are in NROY space is the bottleneck.)
+which is painfully slow (about 20 minutes, ensuring points are in NROY space
+is the bottleneck.)
 
 Finally, let's take a look at the sampled inputs, with histograms on the diagonal, two-dimensional kernel density estimates on the lower triangle, and the raw inputs on the upper diagonal.
 
@@ -960,7 +1056,7 @@ box()
 axis(side = 4, las = 2, at = kde_seq_log10, labels = kde_seq)
 ```
 
-<img src="figure/BinomialCalibration.Rmd//new_wave-1.png" style="display: block; margin: auto;" />
+<img src="figure/BinomialCalibration//new_wave-1.png" title="plot of chunk new_wave" alt="plot of chunk new_wave" style="display: block; margin: auto;" />
 
 # Extensions and issues
 
@@ -990,4 +1086,6 @@ Input 5 doesn't appear to be doing much, which isn't surprising if it doesn't ki
 
 ## Direct MCMC
 
-Oakley \& Youngman (2017) weren't able to calibrate their simulator by direct MCMC. However, this might be possible for MetaWards. I don't know how long a MetaWards run takes, but if it's not too long, then this could be considered. Alternatively, some sort of hybrid MCMC might make it possible.
+Oakley & Youngman (2017) weren't able to calibrate their simulator by direct MCMC. However, this might be possible for MetaWards. I don't know how long a MetaWards run takes, but if it's not too long, then this could be considered. Alternatively, some sort of hybrid MCMC might make it possible.
+
+

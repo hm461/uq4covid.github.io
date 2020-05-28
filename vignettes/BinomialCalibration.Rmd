@@ -2,42 +2,18 @@
 title: "Some out-loud thoughts on calibrating MetaWards for COVID-19"
 author: "Ben Youngman"
 date: "25/05/2020"
-output: 
-  html_document:
-    number_sections: true
-    keep_md: true
-urlcolor: blue
+layout: vignette
 ---
-
-<style type="text/css">
-
-body{ /* Normal  */
-  font-size: 14px;
-}
-h1.title {
-  font-size: 30px;
-}
-h1 { /* Header 1 */
-  font-size: 24px;
-}
-h2 { /* Header 2 */
-  font-size: 20px;
-}
-code.r{ /* Code block */
-  font-size: 12px;
-}
-pre { /* Code block - determines code spacing between lines */
-  font-size: 12px;
-}
-</style>
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-my_fig_path = file.path('figure', knitr::current_input(), .Platform$file.sep)
-knitr::opts_chunk$set(fig.path = my_fig_path)
+filename = tools::file_path_sans_ext(knitr::current_input())
+my_fig_path = file.path('figure', filename, .Platform$file.sep)
+my_cache_path = file.path('_knitr_cache', filename, .Platform$file.sep)
+knitr::opts_chunk$set(fig.path = my_fig_path, 
+		      cache.path = my_cache_path)
 library(MASS)
 library(rgdal)
-setwd("/home/ben/Dropbox/Exeter/Research/covid/")
 ```
 
 ```{r, eval = FALSE}
@@ -47,7 +23,7 @@ library(rgdal)
 
 # Introduction
 
-The aim of this document is to think about how to calibrate COVID-19 simulations from the MetaWards model. Blah blah blah.
+The aim of this document is to think about how to calibrate COVID-19 simulations from the MetaWards model. 
 
 # Various COVID-19 data
 
@@ -137,7 +113,7 @@ sim <- sim[, !in_Wales]
 
 Next we'll load the latest Public Health England (PHE) data on COVID-19 cases, available from [https://coronavirus.data.gov.uk/](https://coronavirus.data.gov.uk/), a website with some surprisingly good graphics.
 
-```{r obs}
+```{r obs, cache=TRUE}
 obs <- read.csv("https://coronavirus.data.gov.uk/downloads/csv/coronavirus-cases_latest.csv")
 ```
 
@@ -205,21 +181,31 @@ That's it for now in terms of preparing the data.
 
 ## Outline
 
-Of the various ways to calibrate the MetaWards model, [Oakley \& Youngman (Technometrics, 2017)](https://doi.org/10.1080/00401706.2015.1125391) seems a viable option, which works as follows. Out of laziness, I'll just refer to the MetaWards model as the `simulator' from now on.
+Of the various ways to calibrate the MetaWards model, [Oakley & Youngman (Technometrics, 2017)](https://doi.org/10.1080/00401706.2015.1125391) seems a viable option, which works as follows. Out of laziness, I'll just refer to the MetaWards model as the `simulator' from now on.
 
-Consider a single UA. Let $Z$ denote its observed number of cases and $n$ its population size, i.e. the number of potential cases (on a given day). (This assumes someone can only contract once, which we'll return to.) Then, of course, \[ Z \sim Binomial(n, \theta^*)\] where $\theta^*$ is the probability of an individual contracting COVID-19. 
+Consider a single UA. Let $Z$ denote its observed number of cases and $n$ its population size, i.e. the number of potential cases (on a given day). (This assumes someone can only contract once, which we'll return to.) Then, of course, $Z \sim Binomial(n, \theta^\*)$ where $\theta^\*$ is the probability of an individual contracting COVID-19. 
 
 Next, we'll assume that the simulator takes input $x$, and gives number of cases $Y(x)$, where \begin{equation} Y(x) \sim Binomial(m, \theta(x)), \label{y} \end{equation} with $\theta(x)$ the simulator's probability that an individual contracts COVID-19. (I suppose $m = n$, or at least they would be equal if they represented the same time point, but we'll return to this.)
 
-Forgetting discrepancy, for the time being, in rather simple form we want to assume that $\theta^* = \theta(x^*)$ for some calibrated input $x^*$. From \eqref{y}, $\pi(\theta(x) \mid y(x), m)$ is of $Beta(1 + y(x), 1 + m - y(x))$ form, and hence \begin{align*} \pi(z \mid y(x), m, n) &= \int \pi(z \mid \theta(x), n) \pi(\theta(x) \mid y(x), m) d\theta(x) \\ &= \dfrac{{}^nC_z B(1 + y(x) + z, 1 + m - y(x) + n - z)}{B(1 + y(x), 1 + m - y(x))}, \end{align*} where $B(\, , \,)$ is the Beta function.
+Forgetting discrepancy, for the time being, in rather simple form we want to assume that $\theta^\* = \theta(x^\*)$ for some calibrated input $x^\*$. From the equation for $Y$ we have $\pi(\theta(x) \mid y(x), m)$ is of $Beta(1 + y(x), 1 + m - y(x))$ form, and hence 
+
+$$\pi(z \mid y(x), m, n) = \int \pi(z \mid \theta(x), n) \pi(\theta(x) \mid y(x), m) d\theta(x)$$
+
+$$= \dfrac{ { }^nC_z B(1 + y(x) + z, 1 + m - y(x) + n - z)}{B(1 + y(x), 1 + m - y(x))}$$ 
+
+where $B(\, , \,)$ is the Beta function.
 
 ## Discrepancy, through $\lambda$
 
-Oakley \& Youngman's approach to allowing for simulator discrepancy was to assume that instead of simulations being representative of a sample of size $m$, they are representative of a sample of size $\lambda m$, $0 < \lambda < 1$. This is perhaps quite an intuitive way of sensibly specifying discrepancy. For example, the average UA population is $m \simeq 165,000$. Suppose the simulator has the perfect input. Would it get $Y(x)$ perfectly? Of course not. What if $m = 165$, i.e. $\lambda = 0.001$? I think we need to be thinking of very small $\lambda \ll 0.001$. The upshot of this is that for calibration we'll consider \begin{equation} \label{calib} \pi(z \mid y(x), m, n, \lambda) = \dfrac{{}^nC_z B(1 + \lambda y(x) + z, 1 + \lambda[m - y(x)] + n - z)}{B(1 + \lambda y(x), 1 + \lambda[m - y(x)])}. \end{equation} This is all described rather more formally in Oakley \& Youngman (2017).
+Oakley & Youngman's approach to allowing for simulator discrepancy was to assume that instead of simulations being representative of a sample of size $m$, they are representative of a sample of size $\lambda m$, $0 < \lambda < 1$. This is perhaps quite an intuitive way of sensibly specifying discrepancy. For example, the average UA population is $m \simeq 165,000$. Suppose the simulator has the perfect input. Would it get $Y(x)$ perfectly? Of course not. What if $m = 165$, i.e. $\lambda = 0.001$? I think we need to be thinking of very small $\lambda \ll 0.001$. The upshot of this is that for calibration we'll consider \begin{equation} \label{calib} \pi(z \mid y(x), m, n, \lambda) = \dfrac{ { }^nC_z B(1 + \lambda y(x) + z, 1 + \lambda[m - y(x)] + n - z)}{B(1 + \lambda y(x), 1 + \lambda[m - y(x)])}. \end{equation} This is all described rather more formally in Oakley & Youngman (2017).
 
 ## Multiple UAs
 
-Let's extend the notation to allow for multiple UAs. For the observations, let $Z_j$ denote the number of cases in UA $j$ of size $n_j$ for $j=1, \ldots, J$ with ${\bf Z} = (Z_1, \ldots, Z_J)$ and ${\bf n} = (n_1, \ldots, n_J)$. (Given the above we have $J=305$.) Let $Y_j(x)$ and $m_j$ be corresponding quantities for the simulator, and let ${\bf Y}(x) = (Y_1(x), \ldots, Y_J(x))$ and ${\bf m} = (m_1, \ldots, m_J)$. Then suppose \[\pi({\bf z} \mid {\bf y}(x), {\bf m}, {\bf n}, \lambda) = \prod_{j=1}^J \pi(z_j \mid y_j(x), m_j, n_j, \lambda).\] Above we're assuming independence. Should we assume independence from UA to UA? I doubt it. A couple of suggestions are given later for partial remedies.
+Let's extend the notation to allow for multiple UAs. For the observations, let $Z_j$ denote the number of cases in UA $j$ of size $n_j$ for $j=1, \ldots, J$ with ${\bf Z} = (Z_1, \ldots, Z_J)$ and ${\bf n} = (n_1, \ldots, n_J)$. (Given the above we have $J=305$.) Let $Y_j(x)$ and $m_j$ be corresponding quantities for the simulator, and let ${\bf Y}(x) = (Y_1(x), \ldots, Y_J(x))$ and ${\bf m} = (m_1, \ldots, m_J)$. Then suppose 
+
+$$\pi({\bf z} \mid {\bf y}(x), {\bf m}, {\bf n}, \lambda) = \prod_{j=1}^J \pi(z_j \mid y_j(x), m_j, n_j, \lambda).$$ 
+
+Above we're assuming independence. Should we assume independence from UA to UA? I doubt it. A couple of suggestions are given later for partial remedies.
 
 # Calibration in action
 
@@ -267,7 +253,7 @@ lP <- colSums(lPi)
 
 Then let's plot of histogram of $\ell(z \mid x_i)$.
 
-```{r pi_z_hist, fig.height = 6, fig.width = 7, out.extra = 'width = 10cm', fig.align = 'center'}
+```{r pi_z_hist}
 hist(lP, main = "Histogram of l(z | x_i)", xlab = "l(z | x_i)")
 ```
 
@@ -281,7 +267,11 @@ l_0 <- max(lP)
 
 Now we'll plot the observations and cases for the best simulator run. Let's set up the data for this. We're going to need some polygons representing the UAs. We can get these from [this ONS link](https://geoportal.statistics.gov.uk/datasets/local-authority-districts-december-2017-ultra-generalised-clipped-boundaries-in-united-kingdom-wgs84), from which we'll choose the `Shapefile' download. The following reads in the shapefile, and gets rid of any UAs not in our data.
 
-```{r poly, message = FALSE}
+```{r poly, message = FALSE, eval=TRUE, include=FALSE}
+UAs <- readOGR("data/BinomialCalibration/Local_Authority_Districts__December_2017__Boundaries_in_the_UK__WGS84_.shp")
+UAs <- UAs[match(census$id, UAs$lad17cd),]
+```
+```{r, eval=FALSE}
 UAs <- readOGR("Local_Authority_Districts__December_2017__Boundaries_in_the_UK__WGS84_.shp")
 UAs <- UAs[match(census$id, UAs$lad17cd),]
 ```
@@ -362,7 +352,7 @@ exp(out - top)
 }
 ```
 
-and calculate $\max_{x_{ik} \in [*,*]} \ell(z \mid x)$ for each input (i.e. the maximum log posterior predictive probability for $x_{ik}$ in a given bin)
+and calculate $\max_{x_{ik} \in [\*,\*]} \ell(z \mid x)$ for each input (i.e. the maximum log posterior predictive probability for $x_{ik}$ in a given bin)
 
 ```{r max_vec}
 vecs <- list()
@@ -563,7 +553,7 @@ in a very slow way.
 
 We can end with a sanity check viewing the NROY space's convex pairwise regions (lower triangle), and the marginal (diagonal) and pairwise (upper triangle) samples from it.
 
-```{r nroy_inputs, fig.width = 8.5, fig.height = 8, fig.align = 'center'}
+```{r nroy_inputs}
 layout(grid)
 par(mar = rep(.5, 4), oma = c(3, 3, 0, 4))
 
@@ -611,7 +601,7 @@ for (i in 2:n_input) {
 
 # Emulation
 
-Obviously, we could --- and perhaps eventually should ---  try and emulate the simulator's outputs, e.g. the numbers of cases on a given day in a given UA, but this sounds like quite a challenge. Instead, to kick things off, we might consider the approach of Oakley \& Youngman (2017), in which the idea is simply to emulate the (logarithm of) the predictive probability surface, given the simulator's inputs. Let's introduce some emulator-friendly notation. Let $f(x) = \ell(z \mid x)$. As usual, let's suppose $f(x) \sim GP(m(x), v(x, \;)),$ where $m(x) = h^T(x) \beta$, with $h()$ comprising some basis functions.
+Obviously, we could --- and perhaps eventually should ---  try and emulate the simulator's outputs, e.g. the numbers of cases on a given day in a given UA, but this sounds like quite a challenge. Instead, to kick things off, we might consider the approach of Oakley & Youngman (2017), in which the idea is simply to emulate the (logarithm of) the predictive probability surface, given the simulator's inputs. Let's introduce some emulator-friendly notation. Let $f(x) = \ell(z \mid x)$. As usual, let's suppose $f(x) \sim GP(m(x), v(x, \;)),$ where $m(x) = h^T(x) \beta$, with $h()$ comprising some basis functions.
 
 A useful thing to first consider is $h()$'s form. A priori, we might want to hope that the best inputs don't lie on the boundary of $\mathcal{D} = [-1, 1]^5$, input space. Hence, we should consider some form for $h()$ that allows $f()$ not to peak on the boundary of $\mathcal{D}$. For example, $h^T(x) = (1, x_1, \ldots, x_5, x_1^2, \ldots, x_5^2)$ meets this criterion, whereas $h_T(x) = (1, x_1, \ldots, x_5)$ doesn't; so we'll choose the former. However, this doesn't seem ideal, given the relatively small number of simulator runs at our disposal, as it gives $\beta^T = (\beta_1, \ldots, \beta_q)$ with $q = 11$; i.e. a perhaps slightly too large $q$. Are there any more parsimonious forms for $h()$? Nonetheless, we'll proceed with this $h()$.
 
@@ -649,7 +639,7 @@ f_D <- trans(lP[in_nroy], l_0)
 hist(f_D, 12, main = "Histogram of f(D)", xlab = "f(D)", prob = TRUE)
 ```
 
-```{r loglik, echo = FALSE}
+```{r loglik}
 makeA <- function(X, phi, n) {
 X <- t(X) / phi
 R <- crossprod(X)
@@ -715,7 +705,7 @@ which seems to have worked, given `fit$gradient` $\simeq 0$.
 
 If we want to emulate the log predictive probability surface, we should first consider whether the emulator fits its training data okay. We'll use function `post_mean` to give the emulator's posterior mean, for arbitrary input $x$. This has arguments `x`, the input $x$, `X` the simulator inputs from the training data, `beta`, the estimate $\beta$, `nug`, the estimated nugget, `suff`, the 'suffix', i.e. $A^{-1}(f(D) - H \hat \beta)$, `rho`, a multiplier, and `nroy`, data on the NROY region compatible with `keeper()`.
 
-```{r post_mean, echo = FALSE}
+```{r post_mean}
 post_mean <- function(x, X, beta, phi, nug, suff, rho = 1, nroy) {
 if (any(abs(x) > 1)) return(-1e20)
 if (!keeper(nroy, matrix(x, 1))) return(-1e20)
@@ -745,7 +735,7 @@ abline(0, 1, lty = 2)
 
 The agreement is not bad, especially since we've kept at least one redundant input: it looks like the emulator could help us rule out some more of input space. So, let's give it a go.
 
-```{r gibbs_fn, echo = FALSE}
+```{r gibbs_fn}
 gibbs <- function(inits, nllh, ..., n.chain=1e2, n.mcmc=1e1, reportOutput=FALSE, plot.every=NULL, bridge = 1, nc0 = NULL) {
 
 inits.mcmc <- inits
@@ -826,7 +816,7 @@ fx <- function(x, X, beta, phi, nug, suff, rho = 1, nroy, x0) {
 
 Then we'll run the Gibbs' sampler for `nc` iterations, thinning every 100,
 
-```{r gibbs}
+```{r gibbs, cache=TRUE}
 nc <- 1e5
 thin <- seq_len(nc) %% 100 == 0
 gibbs_samp <- gibbs(numeric(5), post_mean, X = X0, beta = emulator$beta, 
@@ -836,7 +826,8 @@ gibbs_samp <- gibbs(numeric(5), post_mean, X = X0, beta = emulator$beta,
 new_X <- attr(gibbs_samp, "mat")[, thin]
 ```
 
-which is painfully slow. (Ensuring points are in NROY space is the bottleneck.)
+which is painfully slow (about 20 minutes, ensuring points are in NROY space
+is the bottleneck.)
 
 Finally, let's take a look at the sampled inputs, with histograms on the diagonal, two-dimensional kernel density estimates on the lower triangle, and the raw inputs on the upper diagonal.
 
@@ -923,4 +914,6 @@ Input 5 doesn't appear to be doing much, which isn't surprising if it doesn't ki
 
 ## Direct MCMC
 
-Oakley \& Youngman (2017) weren't able to calibrate their simulator by direct MCMC. However, this might be possible for MetaWards. I don't know how long a MetaWards run takes, but if it's not too long, then this could be considered. Alternatively, some sort of hybrid MCMC might make it possible.
+Oakley & Youngman (2017) weren't able to calibrate their simulator by direct MCMC. However, this might be possible for MetaWards. I don't know how long a MetaWards run takes, but if it's not too long, then this could be considered. Alternatively, some sort of hybrid MCMC might make it possible.
+
+
