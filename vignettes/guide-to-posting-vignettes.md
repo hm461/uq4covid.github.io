@@ -11,27 +11,17 @@ this as much as possible and let me know if something seems unreasonable or
 doesn't make sense.
 
 
-## Use markdown and knitr
 
-Vignettes are saved as markdown files (suffix `.md`) in the `vignettes`
-subfolder. Your markdown file should include a yaml header that specifies
-title, author, and the default layout, such as
+## Use rmarkdown::render to generate html
 
-```
----
-author: Author name
-title: Vignette title
-layout: default
----
-```
-
-
+Vignettes are saved as html files in the `vignettes` subfolder. 
 Use `knitr` as the rendering engine to convert Rmarkdown to
 markdown. 
 
 ```r
-knitr::knit("cool_analysis.Rmd")
+rmarkdown::render("cool_analysis.Rmd") # generates cool_analysis.html
 ```
+
 
 ## Add your vignette to the vignette index 
 
@@ -39,45 +29,34 @@ Modify the file `vignettes.md` in the base directory to add a link to your new
 vignette. 
 
 
+## Pull request
+
+To get your vignette added to the website, fork the repository, add your
+vignette and edit the `vignettes.md` file, and then issue a pull request
+through github.
+
+To make any changes to your vignette, please also make the changes on your
+local fork first, and then file a pull request.
+
+
 ## Folder structure
 
-All vignettes are saved as markdown files (suffix `.md`) in the `vignettes`
-subfolder. Figures and data should be saved in individual subfolders per
-vignette under in the `vignettes/figure` and `vignettes/data` folders.
+Vignettes are saved as html files or markdown files in the `vignettes`
+subfolder. Data and additional source code files should be saved in individual
+subfolders per vignette under the `vignettes/data` subfolder.
 
-For example, if your vignette is called `cool_analysis.md`, it
+For example, if your vignette is called `cool_analysis.html`, it
 should generate the following subdirectories and files:
 
 ```
 vignettes
-├── cool_analysis.md
-├── data
-│   └── cool_analysis
-│       └── cool_data.csv
-└── figure
-    └── cool_analysis
-        └── cool_figure1.png
+├── cool_analysis.Rmd
+├── cool_analysis.html
+└── data
+    └── cool_analysis
+        ├── cool_functions.R
+        └── cool_data.csv
 ```
-
-You can use the Rmarkdown template [`template.Rmd`]({{ site.baseurl
-}}/vignettes/template.Rmd) that, among other things, sets chunk options so that
-figures are saved in a new subdirectory. If you don't want to use the template
-file, include the following chunk in your `Rmd` file:
-
-
-````
-```{r, include=FALSE}
-my_fig_path = file.path('figure', knitr::current_input(), .Platform$file.sep)
-knitr::opts_chunk$set(fig.path = my_fig_path)
-```
-````
-
-
-
-## Latex maths
-
-Use Latex syntax to typeset maths, i.e. single dollar signs `$` for inline
-maths and double dollar signs `$$` for display style maths. 
 
 
 ## Suppress package startup messages
@@ -128,12 +107,24 @@ which will render to
 > where the file `data.Rdata` can be downloaded [here](http://link.to/data.Rdata).
 
 
+## Collapse big code chunks instead of hiding them
 
+It's generally ok to show all the source code used in your vignette. If you
+decide you want to hide parts of the code don't use chunk options like `echo =
+FALSE` or `include = FALSE`, but rather use the `<details>` html tag to
+collapse them:
 
+````
+<p><details><summary>Click here to see the big code chunk</summary>
 
+```{r big_code_chunk}
+# lots of code here
+```
 
+</details></p>
+````
 
-
-
+(Note: This only works when rendering the Rmarkdown file to html. It doesn't
+seem to work with vignettes written in markdown.)
 
 
