@@ -1,0 +1,339 @@
+---
+title: "A simple wave 1 HM of MetaWards"
+author: "TJ McKinley"
+date: "29/05/2020"
+output: html_document
+---
+
+This is an attempt to history match some MetaWards output using linear regression based emulators (in the first instance). This is exploratory, and should not be confused with final analyses!
+
+There are a few R files needed to replicate the analysis, and they can be downloaded [here](data/LMWave1/sourceFiles.zip). You will need to place them into your working directories and install the libraries that can be found at the top of the "HMClass.R" file.
+
+We provide a prototype `HM` object that facilitates different parts of the HM process. The idea is that different type of emulators can be used for different outputs and different waves, but here we focus on a simple linear regression emulator. The "LMEmulator.R" files provides a special class to store this emulator after fitting. There are also some simple tools for processing the MetaWards output, which can be downloaded from [here](data/LMWave1/results.csv.bz2).
+
+Firstly, let's load the source files:
+
+```{r, message = FALSE, warning = FALSE, include = FALSE}
+## set up HM object
+source("data/LMWave1/HMClass.R")
+source("data/LMWave1/dataTools.R")
+source("data/LMWave1/LMEmulator.R")
+source("data/LMWave1/checkInputs.R")
+```
+
+```{r, message = FALSE, warning = FALSE, eval = FALSE}
+## set up HM object
+source("HMClass.R")
+source("dataTools.R")
+source("LMEmulator.R")
+source("checkInputs.R")
+```
+
+We have to set the prior distributions for the parameters of interest, which match those used in the wider UQ4Covid runs:
+
+```{r}
+## set priors
+priors <- data.frame(
+    parnames = c("incubation_time", "infectious_time", "r_zero", "lock_1_restrict", "lock_2_release"),
+    dist = rep("unif", 5), 
+    stringsAsFactors = F
+)
+priors$p1 <- c(4, 2, 2.5, 0, 0)
+priors$p2 <- c(6, 4, 4, 1, 1)
+```
+
+In the first instance, following Doug, we calibrate to estimates for the cumulative cases on March 23rd from [Jit et al. ](https://www.eurosurveillance.org/content/10.2807/1560-7917.ES.2020.25.18.2000632):
+
+```{r}
+## set up data to match to Jit et al.
+sumStat <- data.frame(cI = 527000)
+
+## extract data point to emulate
+time <- as.numeric(as.Date("23/03/2020", format = "%d/%m/%Y") - as.Date("01/01/2020", format = "%d/%m/%Y"))
+```
+
+```{r, include = FALSE}
+saveRDS(time, "time.rds")
+```
+
+Now we set up the `HM` object (called `hist` here), that includes the priors, the data to calibrate to, and the observation error (`VO`), which is derived as roughly the variance from the Jit et al. estimate (assuming Gaussian errors---which we know is not true, but is a rough ball-park):
+
+```{r}
+## set seed for reproducibility
+set.seed(48)
+
+## observation variance roughly informed by Jit et al.
+VO <- ((797000 - 362000) / 4)^2
+VO <- list(cI = VO)
+hist <- HM$new(priors, sumStat, VO)
+```
+
+Now we use the inbuild `sampDesign` method to sample 100 design points and 20 validation points, using two maximin LHS samplers:
+
+```{r}
+## sample design points from prior
+ndesign <- 100
+nvalidate <- 20
+nreps <- 10
+hist$sampDesign(ndesign, nvalidate)
+```
+
+The design points are stored in the `HM` object (`hist` here), but can be extracted using the `extractElement()` method, and then manipulated into the format to run correctly with the UQ4Covid parameterisation:
+
+```{r, results = "hide"}
+## extract design points
+design <- hist$extractElement("design") %>%
+    select(-val)
+
+## convert to -1, 1 space for MetaWards
+designM <- select(design, -par) %>%
+    mutate(ind = 1:n()) %>%
+    gather(parnames, value, -ind) %>%
+    full_join(hist$priors) %>%
+    mutate(value = (value - p1) / (p2 - p1)) %>%
+    mutate(value = value * 2 - 1) %>%
+    select(parnames, value, ind) %>%
+    spread(parnames, value) %>%
+    select(incubation_time, infectious_time, r_zero, lock_1_restrict, lock_2_release)
+designM$repeats <- nreps
+write.csv(designM, "designM1.csv", row.names = FALSE)
+```
+
+I ran this locally, and there is a `convertToMetaWards()` function that will parse the `design` object into the correct form:
+
+```{r}
+## convert to format for MetaWards
+disease <- convertToMetaWards(design, nreps)
+write.csv(select(disease, -par), "disease1.csv", row.names = FALSE)
+```
+
+There is also a function to replicate the MetaWards fingerprint, so that runs can be correctly matched against the design points:
+
+```{r}
+## add fingerprint to data and amend
+disease <- createFingerprint(disease)
+```
+
+The next stage involves running MetaWards at the design points to produce model runs, which can be downloaded [here](data/LMWave1/results.csv.bz2). We now read these into R and run some checks to match the outputs to the design points:
+
+```{r, include = FALSE}
+## read in model runs in form: par [as integer, denoting design point], count
+sims <- read_csv(gzfile("data/LMWave1/results.csv.bz2"))
+```
+
+```{r, eval = FALSE}
+## read in model runs in form: par [as integer, denoting design point], count
+sims <- read_csv(gzfile("results.csv.bz2"))
+```
+
+```{r}
+## check matches to inputs
+sims <- left_join(sims, select(disease, fingerprint, `repeat`, par), by = c("fingerprint", "repeat"))
+
+## check for no missing values
+if(!identical(unique(sims$par), unique(disease$par))) {
+    stop("Incomplete matching of inputs to outputs")
+}
+
+## check that replicates match
+temp <- distinct(sims, par, `repeat`) %>%
+    group_by(par) %>%
+    count()
+if(!all(temp$n == nreps)) {
+    stop("Not enough replicates in some runs")
+}
+```
+
+Now that we know we have a complete set of runs, we can do some post-processing to extract the cumulative cases on March 23rd:
+
+```{r, message = FALSE}
+## extract cumulative cases at given time
+sims <- select(sims, par, `repeat`, S, E, day) %>%
+    filter(day == 0 | day == time) %>%
+    group_by(par, `repeat`) %>%
+    mutate(cI = lag(S) - S) %>%
+    ungroup() %>%
+    filter(!is.na(cI)) %>%
+    mutate(cI = cI - E) %>%
+    select(par, cI) %>%
+    arrange(par)
+
+## plot cumulative cases
+ggplot(sims, aes(x = cI)) + geom_histogram()
+```
+
+Now we add the simulations to the `HM` object:
+
+```{r}
+## set runs in HM object
+hist$setSims(sims)
+```
+
+Now we build the emulator. Here we will build an emulator for the stochastic means and an emulator for the stochastic SD at each of the design points:
+
+```{r}
+## set up data for emulation
+simsMn <- group_by(sims, par) %>%
+    summarise(mncount = mean(cI)) %>%
+    arrange(par)
+simsSD <- group_by(sims, par) %>%
+    summarise(sdcount = sd(cI)) %>%
+    arrange(par)
+
+## plot means and SDs against inputs
+inner_join(simsMn, design, by = "par") %>%
+    select(-par) %>%
+    gather(parameter, value, -mncount) %>%
+    ggplot(aes(x = value, y = mncount)) +
+    geom_point() +
+    facet_wrap(~parameter, scales = "free") +
+    ggtitle("Means")
+inner_join(simsSD, design, by = "par") %>%
+    select(-par) %>%
+    gather(parameter, value, -sdcount) %>%
+    ggplot(aes(x = value, y = sdcount)) +
+    geom_point() +
+    facet_wrap(~parameter, scales = "free") +
+    ggtitle("SDs")
+```
+
+We can see that the relationship seems to be most pronounced w.r.t. $R_0$, as others have observed. We will emulate both the means and SDs on the log-scale, so we need to provide some functions that perform the correct transformations and their inverses. This is to ensure that we can use customised transformations of both the inputs and outputs, and the `HM` object will generate predictions and variances on the correct scale.
+
+```{r}
+## set up log transformation
+lTrans <- function(x, inverse = FALSE) {
+    if(inverse) {
+        return(exp(x)) 
+    } else {
+        return(log(x))
+    }
+}
+
+## set up identity transform
+iTrans <- function(x, inverse = FALSE) {
+    return(x)
+}
+```
+
+Next we emulate the stochastic means (separating the design points from the validation points below):
+
+```{r, results = "hide"}
+## set up data
+xTrain <- filter(design, par <= ndesign) %>%
+    select(-par)
+yTrain <- filter(simsMn, par <= ndesign) %>%
+    select(-par)
+
+## explore transformation
+yTrain <- mutate(yTrain, mncount = lTrans(mncount))
+
+## train linear model
+meanEmulator <- fitLM(xTrain, yTrain, 6)
+```
+
+```{r, fig.show = "hold"}
+## plot residuals
+par(mfrow = c(2, 2))
+plot(meanEmulator)
+par(mfrow = c(1, 1))
+```
+
+```{r}
+## validate on external data
+xVal <- filter(design, par > ndesign) %>%
+    select(-par)
+yVal <- filter(simsMn, par > ndesign) %>%
+    select(-par)
+yVal <- mutate(yVal, mncount = lTrans(mncount))
+validateLM(meanEmulator, xVal, yVal)
+
+## set transformation functions
+meanTrans <- list(
+    output = lTrans,
+    incubation_time = iTrans,
+    infectious_time = iTrans,
+    r_zero = iTrans,
+    lock_1_restrict = iTrans,
+    lock_2_release = iTrans
+)
+```
+
+The final `meanTrans` list above sets up the transformation functions for the inputs and outputs in the correct format for the `hm` object to work with. Now we emulate the SD in a similar way:
+
+```{r, results = "hide"}
+## set up data
+xTrain <- filter(design, par <= ndesign) %>%
+    select(-par)
+yTrain <- filter(simsSD, par <= ndesign) %>%
+    select(-par)
+
+## explore transformation
+yTrain <- mutate(yTrain, sdcount = lTrans(sdcount))
+
+## train linear model
+sdEmulator <- fitLM(xTrain, yTrain, 6)
+```
+
+```{r, fig.show = "hold"}
+## plot residuals
+par(mfrow = c(2, 2))
+plot(sdEmulator)
+par(mfrow = c(1, 1))
+```
+
+```{r}
+## validate on external data
+xVal <- filter(design, par > ndesign) %>%
+    select(-par)
+yVal <- filter(simsSD, par > ndesign) %>%
+    select(-par)
+yVal <- mutate(yVal, sdcount = lTrans(sdcount))
+validateLM(sdEmulator, xVal, yVal)
+
+## set transformation functions
+sdTrans <- list(
+    output = lTrans,
+    incubation_time = iTrans,
+    infectious_time = iTrans,
+    r_zero = iTrans,
+    lock_1_restrict = iTrans,
+    lock_2_release = iTrans
+)
+```
+
+Finally, we create a list of emulators for each output (only `cI` here). Here the mean emulator is used to produce predictions and the code uncertainty (VC), but the SD emulator is used to estimate the stochastic variance (VS) and the model discrepancy (which is 0.1 $\times$ VS). The observation error has already been set earlier.
+
+```{r}
+## set up emulator object
+LM <- list(cI = 
+    LMemulator$new(
+        mean = meanEmulator,
+        sd = sdEmulator,
+        trans = list(
+            mean = meanTrans,
+            sd = sdTrans
+        )
+    )
+)
+```
+
+Now we can add the emulator to the `HM` object, and sample 50,000 evaluation points, produce predictions and implausibility measures:
+
+```{r, warning = FALSE, fig.width = 10, fig.height = 10}
+## attach emulator to HM object
+hist$setEmulator(LM)
+
+## sample points to evaluate emulator
+nemul <- 50000
+hist$sampEval(nemul)
+hist$predictEmulator()
+hist$plotImplausibility()
+hist
+```
+
+```{r, include = FALSE}
+## save object
+saveRDS(hist, "hist_w1.rds")
+## save seed
+saveRDS(.Random.seed, "rs_w1.rds")
+```

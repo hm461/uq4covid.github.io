@@ -38,6 +38,7 @@ Please read the [**guide to contributing vignettes**]({{ site.baseurl }}/vignett
 ## Calibration
 
 - [Calibrating MetaWards output]({{ site.baseurl }}/vignettes/BinomialCalibration)
+- [History Matching using linear emulators]({{ site.baseurl }}/vignettes/LMWave1)
 
 
 
