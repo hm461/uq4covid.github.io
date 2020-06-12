@@ -1,1 +1,63 @@
 
+---
+title: "Hossein_Emulator"
+author: "Hossein Mohammadi"
+date: "12/06/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r code}
+require(DiceKriging)
+set.seed(123)
+data <- read.csv("./wards_by_day_100.csv", header = TRUE)
+input_dim <- 5 # dimensionality of input space
+#============ Data cleaning ===============================================
+data <- data[, -1]
+data <- data[-126, ] # all-zero enteries
+X_rep <- data[, 1:input_dim] # inputs with replication
+X <- apply(X_rep, 2, unique) # unique inputs
+n <- dim(X)[1] # number of design points
+n_a <- 25
+# n_b <- n - n_a
+X_a <- X[1:n_a, ]  # where there are replications
+X_b <- X[(1 + n_a):n, ]  # where there aren't replications
+#==========================================================================
+outpots <- data[, (input_dim + 1):dim(data)[2]] # all outputs with replications
+output_index <- 1 # output dimension to be predicted
+replication <- 5
+Y_rep <- matrix(outpots[1:(n_a*replication), output_index], byrow = T, ncol = replication) # output whose index is output_index
+sample_var_a <- apply(Y_rep, 1, var)
+dist_matrix <- as.matrix(dist(X))[(1 + n_a):n, 1:n_a]
+inv_dist_matrix <- 1/dist_matrix
+# normal_inv_dist_matrix <- t(t(inv_dist_matrix)/rowSums(inv_dist_matrix))
+estim_sample_var_b <- inv_dist_matrix %*% sample_var_a
+noise_var <- c(sample_var_a/replication, estim_sample_var_b)
+#============ Building emulator ===============================================
+no_traning <- 85 # number of training data 
+X_train <- X[1:no_traning, ]
+noise_var_training <- noise_var[1:no_traning]
+Y_bar1 <- apply(Y_rep, 1, mean)
+Y_bar2 <- outpots[(n_a*replication + 1): dim(data)[1], output_index]
+Y_bar <- c(Y_bar1, Y_bar2)
+Y_train <- Y_bar[1:no_traning]
+model <- km(design = X_train, response = Y_train, covtype = "gauss", noise.var=noise_var_training, 
+            control = list(trace = F, pop.size = 20*input_dim, max.generations = 50))
+#============ Evaluating emulator ===============================================
+X_test <- X[(1+no_traning):n, ]
+Y_test <- Y_bar[(1+no_traning):n]
+pred_test <- predict(model, X_test, type = "UK", light.return = T, checkNames = F)
+no_test <- n - no_traning # number of test data 
+lb <- min(pred_test$lower95)
+ub <- max(pred_test$upper95)
+plot(x = 1:no_test, pred_test$mean, pch = 1, col = "red", cex = 1.5, ylim = c(lb, ub), 
+     ylab = "Prediction vs. model output", xlab = "Test points")
+legend("top", legend = c("Prediction", "Model output"), col = c("red", "blue"), pch = 1, cex = 1.3)
+points(Y_test, pch = 1, col ="blue", cex = 1.5)
+points(pred_test$upper95, pch= "--", col = "black", cex = 4)
+points(pred_test$lower95, pch= "--", col = "black", cex = 4)
+
+```
