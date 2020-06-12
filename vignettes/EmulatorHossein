@@ -13,7 +13,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r code}
 require(DiceKriging)
 set.seed(123)
-data <- read.csv("./wards_by_day_100.csv", header = TRUE)
+data <- read.csv("data/QuantileKriging_experiment/wards_by_day_100.csv", header = TRUE)
 input_dim <- 5 # dimensionality of input space
 #============ Data cleaning ===============================================
 data <- data[, -1]
